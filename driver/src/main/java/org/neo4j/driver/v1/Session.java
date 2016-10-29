@@ -22,7 +22,7 @@ package org.neo4j.driver.v1;
 import org.neo4j.driver.v1.util.Resource;
 
 /**
- * A <em>Session</em> hosts a series of {@linkplain Transaction transactions}
+ * A <em>InternalSession</em> hosts a series of {@linkplain Transaction transactions}
  * carried out against a database. Within the database, all statements are
  * carried out within a transaction. Within application code, however, it is
  * not always necessary to explicitly {@link #beginTransaction() begin a

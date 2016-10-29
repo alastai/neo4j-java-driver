@@ -19,11 +19,11 @@
 
 package org.neo4j.driver.v1;
 
-import java.net.URI;
-
 import org.neo4j.driver.v1.exceptions.NotCommittedException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.util.Function;
+
+import java.net.URI;
 
 /**
  * A Neo4j database driver, through which you can create {@link Session sessions} to run statements against the database.
@@ -35,7 +35,7 @@ import org.neo4j.driver.v1.util.Function;
  * Driver driver = GraphDatabase.driver( "bolt://localhost:7687" );
  *
  * // Establish a session
- * Session session = driver.session();
+ * InternalSession session = driver.session();
  *
  * // Running a simple statement can be done like this
  * session.run( "CREATE (n {name:'Bob'})" );

@@ -18,10 +18,6 @@
  */
 package org.neo4j.driver.internal;
 
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.neo4j.driver.internal.logging.DevNullLogger;
 import org.neo4j.driver.internal.spi.Connection;
 import org.neo4j.driver.internal.types.InternalTypeSystem;
@@ -36,6 +32,10 @@ import org.neo4j.driver.v1.Values;
 import org.neo4j.driver.v1.exceptions.ClientException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.types.TypeSystem;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.neo4j.driver.v1.Values.value;
 
@@ -266,7 +266,7 @@ public class NetworkSession implements Session
     {
         if ( isOpen.compareAndSet( true, false ) )
         {
-            logger.error( "Neo4j Session object leaked, please ensure that your application calls the `close` " +
+            logger.error( "Neo4j InternalSession object leaked, please ensure that your application calls the `close` " +
                           "method on Sessions before disposing of the objects.", null );
             connection.close();
         }
