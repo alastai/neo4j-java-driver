@@ -20,7 +20,6 @@ package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.AccessMode;
 import org.neo4j.driver.causal.Consistency;
-import org.neo4j.driver.causal.Session;
 import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.v1.Record;
@@ -31,14 +30,15 @@ import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
 
-public class ReadWriteSession implements Session
+public class ReadWriteSession implements BookmarkingSession
 {
+    private final String bookmark;
     private final AccessMode accessMode;
     private final Consistency consistency;
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
 
-    private final org.neo4j.driver.v1.Session readSession;
-    private final org.neo4j.driver.v1.Session writeSession;
+    private final org.neo4j.driver.v1.Session v1ReadSession;
+    private final org.neo4j.driver.v1.Session v1WriteSession;
     private Transaction currentTransaction = null;
 
     public ReadWriteSession(org.neo4j.driver.v1.Driver v1Driver,
@@ -47,12 +47,17 @@ public class ReadWriteSession implements Session
                             Consistency consistency,
                             ToleranceForReplicationDelay toleranceForReplicationDelay)
     {
+        this.bookmark = bookmark; // may be null: in which case bookmarking is turned off in this session
+                                  // if a Session is initialized with a bookmark, then bookmarking is turned on,
+                                  // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
+                                  // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
+
         this.accessMode = accessMode;
         this.consistency = consistency;
         this.toleranceForReplicationDelay = toleranceForReplicationDelay;
 
-        this.readSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
-        this.writeSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
+        this.v1ReadSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+        this.v1WriteSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
     }
 
     @Override
@@ -64,33 +69,19 @@ public class ReadWriteSession implements Session
     @Override
     public Transaction beginTransaction(AccessMode accessMode)
     {
+        org.neo4j.driver.v1.Session v1Session;
+
         switch (accessMode)
         {
             case READ:
-                currentTransaction = new InternalTransaction(this.readSession, accessMode);
+                v1Session = this.v1ReadSession;
             case WRITE:
-                currentTransaction = new InternalTransaction(this.writeSession, accessMode);
+            default:
+                v1Session = this.v1WriteSession;
         }
-        return currentTransaction;
-    }
 
-    @Override
-    public Transaction beginTransaction(String bookmark)
-    {
-        return beginTransaction(AccessMode.WRITE, bookmark);
-    }
-
-    @Override
-    public Transaction beginTransaction(AccessMode accessMode, String bookmark)
-    {
-        switch (accessMode)
-        {
-            case READ:
-                currentTransaction = new InternalTransaction(this.readSession, accessMode, bookmark);
-            case WRITE:
-                currentTransaction = new InternalTransaction(this.writeSession, accessMode, bookmark);
-        }
-        return currentTransaction;
+        return currentTransaction = (this.bookmark == null) ? new InternalTransaction(this, v1Session, accessMode)
+                                                            : new InternalTransaction(this, v1Session, accessMode, bookmark);
     }
 
     @Override
@@ -99,10 +90,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.lastBookmark();
+                return v1ReadSession.lastBookmark();
             case WRITE:
             default:
-                return writeSession.lastBookmark();
+                return v1WriteSession.lastBookmark();
         }
     }
 
@@ -112,10 +103,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                readSession.reset();
+                v1ReadSession.reset();
             case WRITE:
             default:
-                writeSession.reset();
+                v1WriteSession.reset();
         }
     }
 
@@ -125,10 +116,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.isOpen();
+                return v1ReadSession.isOpen();
             case WRITE:
             default:
-                return writeSession.isOpen();
+                return v1WriteSession.isOpen();
         }
     }
 
@@ -138,10 +129,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                readSession.close();
+                v1ReadSession.close();
             case WRITE:
             default:
-                writeSession.close();
+                v1WriteSession.close();
         }
     }
 
@@ -151,10 +142,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.server();
+                return v1ReadSession.server();
             case WRITE:
             default:
-                return writeSession.server();
+                return v1WriteSession.server();
         }
     }
 
@@ -164,10 +155,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.run(statementTemplate, parameters);
+                return v1ReadSession.run(statementTemplate, parameters);
             case WRITE:
             default:
-                return writeSession.run(statementTemplate, parameters);
+                return v1WriteSession.run(statementTemplate, parameters);
         }
     }
 
@@ -177,10 +168,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.run(statementTemplate, statementParameters);
+                return v1ReadSession.run(statementTemplate, statementParameters);
             case WRITE:
             default:
-                return writeSession.run(statementTemplate, statementParameters);
+                return v1WriteSession.run(statementTemplate, statementParameters);
         }
     }
 
@@ -190,10 +181,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.run(statementTemplate, statementParameters);
+                return v1ReadSession.run(statementTemplate, statementParameters);
             case WRITE:
             default:
-                return writeSession.run(statementTemplate, statementParameters);
+                return v1WriteSession.run(statementTemplate, statementParameters);
         }
     }
 
@@ -203,10 +194,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.run(statementTemplate);
+                return v1ReadSession.run(statementTemplate);
             case WRITE:
             default:
-                return writeSession.run(statementTemplate);
+                return v1WriteSession.run(statementTemplate);
         }
     }
 
@@ -216,10 +207,10 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.run(statement);
+                return v1ReadSession.run(statement);
             case WRITE:
             default:
-                return writeSession.run(statement);
+                return v1WriteSession.run(statement);
         }
     }
 
@@ -229,15 +220,21 @@ public class ReadWriteSession implements Session
         switch (accessMode())
         {
             case READ:
-                return readSession.typeSystem();
+                return v1ReadSession.typeSystem();
             case WRITE:
             default:
-                return writeSession.typeSystem();
+                return v1WriteSession.typeSystem();
         }
     }
 
     private AccessMode accessMode()
     {
         return currentTransaction.getAccessMode() == null ? AccessMode.WRITE : currentTransaction.getAccessMode();
+    }
+
+    @Override
+    public void setBookmark(String bookmark)
+    {
+
     }
 }

@@ -19,7 +19,9 @@
 package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.AccessMode;
+import org.neo4j.driver.causal.Outcome;
 import org.neo4j.driver.causal.Transaction;
+import org.neo4j.driver.causal.TransactionState;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
@@ -30,9 +32,11 @@ import java.util.Map;
 
 public class InternalTransaction implements Transaction
 {
+    private final BookmarkingSession parentSession;
     private final AccessMode accessMode;
-    // see below ** private final org.neo4j.driver.v1.Session v1Session;
+    private final org.neo4j.driver.v1.Session v1Session;
     private final org.neo4j.driver.v1.Transaction v1Transaction;
+    private Outcome outcome;
 
     public AccessMode getAccessMode()
     {
@@ -40,18 +44,22 @@ public class InternalTransaction implements Transaction
         return this.accessMode;
     }
 
-    public InternalTransaction(org.neo4j.driver.v1.Session v1Session, AccessMode accessMode)
+    public InternalTransaction(BookmarkingSession parentSession, org.neo4j.driver.v1.Session v1Session, AccessMode accessMode)
     {
+        this.parentSession = parentSession;
+        this.v1Session = v1Session;
         this.accessMode = accessMode;
-        // should be the way to do this, but no getter on v1.Session ** this.v1Session = v1Session;
-        this.v1Transaction = v1Session.beginTransaction(); // will be READ for a READ session, and WRITE for a WRITE session
+
+        this.v1Transaction = this.v1Session.beginTransaction(); // will be READ for a READ session, and WRITE for a WRITE session
     }
 
-    public InternalTransaction(org.neo4j.driver.v1.Session v1Session, AccessMode accessMode, String bookmark)
+    public InternalTransaction(BookmarkingSession parentSession, org.neo4j.driver.v1.Session v1Session, AccessMode accessMode, String bookmark)
     {
+        this.parentSession = parentSession;
+        this.v1Session = v1Session;
         this.accessMode = accessMode;
-        // should be the way to do this, but no getter on v1.Session ** this.v1Session = v1Session;
-        this.v1Transaction = v1Session.beginTransaction(bookmark); // will be READ for a READ session, and WRITE for a WRITE session
+
+        this.v1Transaction = this.v1Session.beginTransaction(bookmark); // will be READ for a READ session, and WRITE for a WRITE session
     }
 
     @Override
@@ -75,7 +83,23 @@ public class InternalTransaction implements Transaction
     @Override
     public void close()
     {
-        v1Transaction.close();
+        v1Transaction.close(); // this is the only action that changes the v1Session bookmark
+        parentSession.setBookmark(v1Session.lastBookmark());
+    }
+
+    @Override
+    public Outcome getOutcome()
+    {
+        return null;
+        // this requires 1) access to impl object, 2) opening up private state info systematically,
+        // and 3) returning null if not one of the Outcome states.
+    }
+
+    @Override
+    public TransactionState getTransactionState()
+    {
+        return null;
+        // this requires 1) access to impl object, 2) opening up private state info systematically
     }
 
     @Override

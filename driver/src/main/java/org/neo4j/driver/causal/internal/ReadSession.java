@@ -20,7 +20,6 @@ package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.AccessMode;
 import org.neo4j.driver.causal.Consistency;
-import org.neo4j.driver.causal.Session;
 import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.v1.Record;
@@ -31,13 +30,14 @@ import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
 
-public class ReadSession implements Session
+public class ReadSession implements BookmarkingSession
 {
+    private String bookmark;
     private final AccessMode accessMode;
     private final Consistency consistency;
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
 
-    private final org.neo4j.driver.v1.Session readSession;
+    private final org.neo4j.driver.v1.Session v1ReadSession;
     private Transaction currentTransaction = null;
 
     public ReadSession(org.neo4j.driver.v1.Driver v1Driver,
@@ -46,101 +46,100 @@ public class ReadSession implements Session
                        Consistency consistency,
                        ToleranceForReplicationDelay toleranceForReplicationDelay)
     {
+        this.bookmark = bookmark; // may be null: in which case bookmarking is turned off in this session
+                                  // if a Session is initialized with a bookmark, then bookmarking is turned on,
+                                  // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
+                                  // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
         this.accessMode = accessMode;
         this.consistency = consistency;
         this.toleranceForReplicationDelay = toleranceForReplicationDelay;
 
-        this.readSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+        this.v1ReadSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
     }
 
     @Override
     public Transaction beginTransaction()
     {
-        return beginTransaction(AccessMode.WRITE);
+        return beginTransaction(AccessMode.READ);
     }
 
     @Override
     public Transaction beginTransaction(AccessMode accessMode)
     {
-        return currentTransaction = new InternalTransaction(this.readSession, accessMode);
-    }
-
-    @Override
-    public Transaction beginTransaction(String bookmark)
-    {
-        return beginTransaction(AccessMode.WRITE, bookmark);
-    }
-
-    @Override
-    public Transaction beginTransaction(AccessMode accessMode, String bookmark)
-    {
-        return currentTransaction = new InternalTransaction(this.readSession, accessMode, bookmark);
+        return currentTransaction = (this.bookmark == null) ? new InternalTransaction(this, v1ReadSession, accessMode)
+                                                            : new InternalTransaction(this, v1ReadSession, accessMode, bookmark);
     }
 
     @Override
     public String lastBookmark()
     {
-        return readSession.lastBookmark();
+        return this.bookmark; // may be null, may be the initial value, may be the value updated by a transaction close
     }
 
     @Override
     public void reset()
     {
-        readSession.reset();
+        v1ReadSession.reset();
     }
 
     @Override
     public boolean isOpen()
     {
-        return readSession.isOpen();
+        return v1ReadSession.isOpen();
     }
 
     @Override
     public void close()
     {
-        readSession.close();
+        v1ReadSession.close();
     }
 
     @Override
     public String server()
     {
-        return readSession.server();
+        return v1ReadSession.server();
     }
 
     @Override
     public StatementResult run(String statementTemplate, Value parameters)
     {
-        return readSession.run(statementTemplate, parameters);
+        return v1ReadSession.run(statementTemplate, parameters);
     }
 
     @Override
     public StatementResult run(String statementTemplate, Map<String, Object> statementParameters)
     {
-        return readSession.run(statementTemplate, statementParameters);
+        return v1ReadSession.run(statementTemplate, statementParameters);
     }
 
     @Override
     public StatementResult run(String statementTemplate, Record statementParameters)
     {
-        return readSession.run(statementTemplate, statementParameters);
+        return v1ReadSession.run(statementTemplate, statementParameters);
     }
 
     @Override
     public StatementResult run(String statementTemplate)
     {
-        return readSession.run(statementTemplate);
+        return v1ReadSession.run(statementTemplate);
     }
 
     @Override
     public StatementResult run(Statement statement)
     {
-        return readSession.run(statement);
+        return v1ReadSession.run(statement);
     }
 
     @Override
     public TypeSystem typeSystem()
     {
-        return readSession.typeSystem();
+        return v1ReadSession.typeSystem();
+    }
+
+    @Override
+    public void setBookmark(String bookmark)
+    {
+        this.bookmark = bookmark; // this in invoked when the value of the bookmark changes in the contained v1Session
     }
 
     private AccessMode accessMode()

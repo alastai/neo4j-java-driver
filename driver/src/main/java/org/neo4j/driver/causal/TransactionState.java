@@ -18,15 +18,12 @@
  */
 package org.neo4j.driver.causal;
 
-import org.neo4j.driver.v1.StatementRunner;
-import org.neo4j.driver.v1.util.Resource;
-
-public interface Transaction extends Resource, StatementRunner
+public enum TransactionState
 {
-    AccessMode getAccessMode();
-    void success();
-    void failure();
-    @Override void close();
-    Outcome getOutcome(); // only meaningful after close()
-    TransactionState getTransactionState();
+    IN_FLIGHT,
+    COMMIT_REQUESTED,
+    ROLLBACK_REQUESTED,
+    COMMITTED,
+    ROLLED_BACK,
+    UNKNOWN
 }

@@ -16,17 +16,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.neo4j.driver.causal;
+package org.neo4j.driver.causal.internal;
 
-import org.neo4j.driver.v1.StatementRunner;
-import org.neo4j.driver.v1.util.Resource;
+import org.neo4j.driver.causal.Session;
 
-public interface Transaction extends Resource, StatementRunner
+public interface BookmarkingSession extends Session
 {
-    AccessMode getAccessMode();
-    void success();
-    void failure();
-    @Override void close();
-    Outcome getOutcome(); // only meaningful after close()
-    TransactionState getTransactionState();
+    void setBookmark(String bookmark);
 }

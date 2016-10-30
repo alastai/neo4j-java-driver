@@ -25,8 +25,7 @@ public interface Session extends Resource, StatementRunner
 {
     Transaction beginTransaction();
     Transaction beginTransaction(AccessMode accessMode);
-    Transaction beginTransaction(String bookmark);
-    Transaction beginTransaction(AccessMode accessMode, String bookmark);
+
     String lastBookmark();
     void reset();
     @Override void close();
