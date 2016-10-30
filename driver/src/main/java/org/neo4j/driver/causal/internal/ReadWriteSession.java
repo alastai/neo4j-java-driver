@@ -22,6 +22,7 @@ import org.neo4j.driver.causal.AccessMode;
 import org.neo4j.driver.causal.Consistency;
 import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
+import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
@@ -32,7 +33,7 @@ import java.util.Map;
 
 public class ReadWriteSession implements BookmarkingSession
 {
-    private final String bookmark;
+    private String bookmark;
     private final AccessMode accessMode;
     private final Consistency consistency;
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
@@ -41,17 +42,19 @@ public class ReadWriteSession implements BookmarkingSession
     private final org.neo4j.driver.v1.Session v1WriteSession;
     private Transaction currentTransaction = null;
 
-    public ReadWriteSession(org.neo4j.driver.v1.Driver v1Driver,
-                            String bookmark,
-                            AccessMode accessMode,
-                            Consistency consistency,
-                            ToleranceForReplicationDelay toleranceForReplicationDelay)
+    public ReadWriteSession(Driver v1Driver,
+                            AccessMode accessMode, 
+                            Consistency consistency, 
+                            ToleranceForReplicationDelay toleranceForReplicationDelay, 
+                            String bookmark)
     {
-        this.bookmark = bookmark; // may be null: in which case bookmarking is turned off in this session
-                                  // if a Session is initialized with a bookmark, then bookmarking is turned on,
+        this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
+                                  // but check the specified consistency level in that case, as that is authoritative:
+                                  // this may be the start of a causally consistent chain.
+
+                                  // If a Session is initialized with a bookmark, then bookmarking is turned on,
                                   // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
                                   // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
-
         this.accessMode = accessMode;
         this.consistency = consistency;
         this.toleranceForReplicationDelay = toleranceForReplicationDelay;
@@ -80,14 +83,20 @@ public class ReadWriteSession implements BookmarkingSession
                 v1Session = this.v1WriteSession;
         }
 
-        return currentTransaction = (this.bookmark == null) ? new InternalTransaction(this, v1Session, accessMode)
-                                                            : new InternalTransaction(this, v1Session, accessMode, bookmark);
+        switch (this.consistency)
+        {
+            case CAUSAL:
+                return new InternalTransaction(this, v1Session, accessMode, this.bookmark);
+            case EVENTUAL:
+            default:
+                return new InternalTransaction(this, v1Session, accessMode);
+        }
     }
 
     @Override
     public String lastBookmark()
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.lastBookmark();
@@ -100,7 +109,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public void reset()
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 v1ReadSession.reset();
@@ -113,7 +122,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public boolean isOpen()
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.isOpen();
@@ -126,7 +135,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public void close()
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 v1ReadSession.close();
@@ -139,7 +148,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public String server()
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.server();
@@ -152,7 +161,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public StatementResult run(String statementTemplate, Value parameters)
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.run(statementTemplate, parameters);
@@ -165,7 +174,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public StatementResult run(String statementTemplate, Map<String, Object> statementParameters)
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.run(statementTemplate, statementParameters);
@@ -178,7 +187,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public StatementResult run(String statementTemplate, Record statementParameters)
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.run(statementTemplate, statementParameters);
@@ -191,7 +200,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public StatementResult run(String statementTemplate)
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.run(statementTemplate);
@@ -204,7 +213,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public StatementResult run(Statement statement)
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.run(statement);
@@ -217,7 +226,7 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public TypeSystem typeSystem()
     {
-        switch (accessMode())
+        switch (this.accessMode)
         {
             case READ:
                 return v1ReadSession.typeSystem();
@@ -227,14 +236,27 @@ public class ReadWriteSession implements BookmarkingSession
         }
     }
 
-    private AccessMode accessMode()
-    {
-        return currentTransaction.getAccessMode() == null ? AccessMode.WRITE : currentTransaction.getAccessMode();
-    }
-
     @Override
     public void setBookmark(String bookmark)
     {
+        this.bookmark = bookmark;
+    }
 
+    @Override
+    public Consistency consistency()
+    {
+        return this.consistency;
+    }
+
+    @Override
+    public ToleranceForReplicationDelay toleranceForReplicationDelay()
+    {
+        return this.toleranceForReplicationDelay;
+    }
+
+    @Override
+    public AccessMode accessMode()
+    {
+        return this.accessMode;
     }
 }

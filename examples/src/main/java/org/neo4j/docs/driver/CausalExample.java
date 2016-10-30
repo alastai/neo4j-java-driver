@@ -19,6 +19,7 @@
 package org.neo4j.docs.driver;
 
 import org.neo4j.driver.causal.AccessMode;
+import org.neo4j.driver.causal.Consistency;
 import org.neo4j.driver.causal.Driver;
 import org.neo4j.driver.causal.GraphDatabase;
 import org.neo4j.driver.causal.Session;
@@ -41,7 +42,7 @@ public class CausalExample
                 tx.run("CREATE (a:`" + label + "`)").consume();
                 tx.success();
             }
-            return writeSession.lastBookmark();
+            return writeSession.lastBookmark(); // it's always there, but you don't have to use it
         }
     }
 
@@ -51,37 +52,10 @@ public class CausalExample
         Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver2:7687",
                                              AuthTokens.basic("neo4j", "neo"));
         boolean matched;
-        try (Session readSession = driver.session(AccessMode.READ))
+        try (Session readSession = driver.session(AccessMode.READ, bookmark))
         {
 
-            try (Transaction tx = readSession.beginTransaction(bookmark))
-            {
-                matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
-                tx.success();
-            }
-        }
-        return matched;
-    }
-
-    public static boolean createAndMatchWithBookmarking(String label)
-    {
-        // imagine working in headless application that executes a stream of transactions
-        Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver1:7687",
-                AuthTokens.basic("neo4j", "neo"));
-
-        boolean matched;
-
-        try (Session readWriteSession = driver.session(AccessMode.READ_WRITE))
-        {
-            try (Transaction tx = readWriteSession.beginTransaction(AccessMode.READ))
-            {
-                tx.run("CREATE (a:`" + label + "`)").consume();
-                tx.success();
-            }
-
-            String bookmark = readWriteSession.lastBookmark(); // this could go away if we used a causally consistent session
-
-            try (Transaction tx = readWriteSession.beginTransaction(AccessMode.WRITE, bookmark))
+            try (Transaction tx = readSession.beginTransaction())
             {
                 matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
                 tx.success();
@@ -98,7 +72,32 @@ public class CausalExample
 
         boolean matched;
 
-        try (Session causallyConsistentSession = driver.session()) // a causally consistent session is by default AccessMode.READ_WRITE
+        try (Session causallyConsistentSession = driver.session()) // by default causally consistent and AccessMode.WRITE
+        {
+            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.WRITE))
+            {
+                tx.run("CREATE (a:`" + label + "`)").consume();
+                tx.success();
+            }
+
+            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+            {
+                matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
+                tx.success();
+            }
+        }
+        return matched;
+    }
+
+    public static boolean readAndRereadWithCausallyConsistentSession(String label)
+    {
+        // imagine working in headless application that executes a stream of transactions
+        Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver1:7687",
+                AuthTokens.basic("neo4j", "neo"));
+
+        boolean matched;
+
+        try (Session causallyConsistentSession = driver.session()) // by default causally consistent and AccessMode.WRITE
         {
             try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
             {
@@ -106,7 +105,34 @@ public class CausalExample
                 tx.success();
             }
 
-            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.WRITE))
+            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+            {
+                matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
+                tx.success();
+            }
+        }
+        return matched;
+    }
+
+    public static boolean readFromAnywhereInEventuallyConsistentSession(String label)
+    {
+        // imagine working in headless application that executes a stream of transactions
+        Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver1:7687",
+                AuthTokens.basic("neo4j", "neo"));
+
+        boolean matched;
+
+        try (Session causallyConsistentSession = driver.session(Consistency.EVENTUAL)) // AccessMode.WRITE
+        {
+            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+            {
+                matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
+                tx.success();
+            }
+
+            // very hard to emulate -- let's imagine that we are experiencing negative time travel
+
+            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
             {
                 matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
                 tx.success();
@@ -119,14 +145,15 @@ public class CausalExample
     {
         String label = UUID.randomUUID().toString();
 
-        boolean separateSessionsMatch = match(create(label), label);
-        System.out.println("Separate READ and WRITE sessions results match:              " + separateSessionsMatch);
+        boolean matchReadAfterWriteInSeparateSessions = match(create(label), label);
+        System.out.println("Separate READ and WRITE sessions results match: " + matchReadAfterWriteInSeparateSessions);
 
-        boolean matchWithBookmarking = createAndMatchWithBookmarking(label);
-        System.out.println("Single READ_WRITE session + bookmarking results match:       " + matchWithBookmarking);
+        boolean matchReadAfterWriteInSingleSession = createAndMatchWithCausallyConsistentSession(label);
+        System.out.println("READ after WRITE in one session results match:  " + matchReadAfterWriteInSingleSession);
 
-        boolean matchWithCausallyConsistentSession = createAndMatchWithCausallyConsistentSession(label);
-        System.out.println("Single READ_WRITE causally consistent session results match: " + matchWithCausallyConsistentSession);
+        boolean matchReadAfterReadInSingleSession = readAndRereadWithCausallyConsistentSession(label);
+        System.out.println("READ after READ in one session results match:   " + matchReadAfterReadInSingleSession);
+
     }
 
 }

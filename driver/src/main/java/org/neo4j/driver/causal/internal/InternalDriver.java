@@ -42,55 +42,72 @@ public class InternalDriver implements Driver
     @Override
     public Session session()
     {
-        return session(null, AccessMode.READ_WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.HIGH); // should we default to causal consistency within a session?
+        return session(AccessMode.READ_WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null); // should we default to causal consistency within a session?
     }
 
     @Override
     public Session session(AccessMode accessMode)
     {
-        return session(null, accessMode, Consistency.CAUSAL, ToleranceForReplicationDelay.HIGH);
+        return session(accessMode, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null);
     }
 
     @Override
-    public Session session(AccessMode accessMode, Consistency consistencyLevel)
+    public Session session(Consistency consistency)
     {
-        return session(null, accessMode, consistencyLevel, ToleranceForReplicationDelay.HIGH);
+        return null;
     }
 
     @Override
-    public Session session(AccessMode accessMode, Consistency consistencyLevel, ToleranceForReplicationDelay toleranceForReplicationDelay)
+    public Session session(ToleranceForReplicationDelay toleranceForReplicationDelay)
     {
-        return session(null, accessMode, consistencyLevel, toleranceForReplicationDelay);
+        return null;
+    }
+
+    @Override
+    public Session session(AccessMode accessMode, Consistency consistency)
+    {
+        return session(accessMode, consistency, ToleranceForReplicationDelay.LOW, null);
+    }
+
+    @Override
+    public Session session(AccessMode accessMode, ToleranceForReplicationDelay toleranceForReplicationDelay)
+    {
+        return session(accessMode, Consistency.CAUSAL, toleranceForReplicationDelay, null);
+    }
+
+    @Override
+    public Session session(AccessMode accessMode, Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay)
+    {
+        return session(accessMode, consistency, toleranceForReplicationDelay, null);
     }
 
     @Override
     public Session session(String bookmark)
     {
-        return session(bookmark, AccessMode.READ_WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.HIGH);
+        return session(AccessMode.READ_WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
     }
 
     @Override
-    public Session session(String bookmark, AccessMode accessMode)
+    public Session session(AccessMode accessMode, String bookmark)
     {
-        return session(bookmark, accessMode, Consistency.CAUSAL, ToleranceForReplicationDelay.HIGH);
+        return session(accessMode, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
     }
 
     @Override
-    public Session session(String bookmark, AccessMode accessMode, Consistency consistencyLevel)
+    public Session session(AccessMode accessMode, ToleranceForReplicationDelay toleranceForReplicationDelay, String bookmark)
     {
-        return session(null, accessMode, consistencyLevel, ToleranceForReplicationDelay.HIGH);
+        return session(accessMode, Consistency.CAUSAL, toleranceForReplicationDelay, bookmark);
     }
 
-    @Override
-    public Session session(String bookmark, AccessMode accessMode, Consistency consistencyLevel, ToleranceForReplicationDelay toleranceForReplicationDelay)
+    private Session session(AccessMode accessMode, Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay, String bookmark)
     {
         switch (accessMode)
         {
             case WRITE:
-                return new ReadWriteSession(v1Driver, bookmark, accessMode, consistencyLevel, toleranceForReplicationDelay);
+                return new ReadWriteSession(v1Driver, accessMode, consistency, toleranceForReplicationDelay, bookmark);
             case READ:
             default:
-                return new ReadSession(v1Driver, bookmark, accessMode, consistencyLevel, toleranceForReplicationDelay);
+                return new ReadSession(v1Driver, accessMode, consistency, toleranceForReplicationDelay, bookmark);
         }
     }
 

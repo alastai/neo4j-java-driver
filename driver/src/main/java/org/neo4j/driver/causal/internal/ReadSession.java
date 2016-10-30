@@ -22,6 +22,7 @@ import org.neo4j.driver.causal.AccessMode;
 import org.neo4j.driver.causal.Consistency;
 import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
+import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
@@ -40,14 +41,17 @@ public class ReadSession implements BookmarkingSession
     private final org.neo4j.driver.v1.Session v1ReadSession;
     private Transaction currentTransaction = null;
 
-    public ReadSession(org.neo4j.driver.v1.Driver v1Driver,
-                       String bookmark,
+    public ReadSession(Driver v1Driver,
                        AccessMode accessMode,
                        Consistency consistency,
-                       ToleranceForReplicationDelay toleranceForReplicationDelay)
+                       ToleranceForReplicationDelay toleranceForReplicationDelay,
+                       String bookmark)
     {
-        this.bookmark = bookmark; // may be null: in which case bookmarking is turned off in this session
-                                  // if a Session is initialized with a bookmark, then bookmarking is turned on,
+        this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
+                                  // but check the specified consistency level, as that is authoritative: this may be the
+                                  // start of a causally consistent chain.
+
+                                  // If a Session is initialized with a bookmark, then bookmarking is turned on,
                                   // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
                                   // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
         this.accessMode = accessMode;
@@ -66,8 +70,14 @@ public class ReadSession implements BookmarkingSession
     @Override
     public Transaction beginTransaction(AccessMode accessMode)
     {
-        return currentTransaction = (this.bookmark == null) ? new InternalTransaction(this, v1ReadSession, accessMode)
-                                                            : new InternalTransaction(this, v1ReadSession, accessMode, bookmark);
+        switch (this.consistency)
+        {
+            case CAUSAL:
+                return new InternalTransaction(this, v1ReadSession, accessMode, bookmark);
+            case EVENTUAL:
+            default:
+                return new InternalTransaction(this, v1ReadSession, accessMode);
+        }
     }
 
     @Override
@@ -139,11 +149,24 @@ public class ReadSession implements BookmarkingSession
     @Override
     public void setBookmark(String bookmark)
     {
-        this.bookmark = bookmark; // this in invoked when the value of the bookmark changes in the contained v1Session
+        this.bookmark = bookmark; // this in invoked by a v1 transaction when the value of the bookmark changes in the contained v1Session
     }
 
-    private AccessMode accessMode()
+    @Override
+    public Consistency consistency()
     {
-        return currentTransaction.getAccessMode() == null ? AccessMode.WRITE : currentTransaction.getAccessMode();
+        return this.consistency;
+    }
+
+    @Override
+    public ToleranceForReplicationDelay toleranceForReplicationDelay()
+    {
+        return this.toleranceForReplicationDelay;
+    }
+
+    @Override
+    public AccessMode accessMode()
+    {
+        return this.accessMode;
     }
 }

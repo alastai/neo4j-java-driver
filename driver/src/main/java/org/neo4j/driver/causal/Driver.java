@@ -21,33 +21,38 @@ package org.neo4j.driver.causal;
 public interface Driver extends AutoCloseable
 {
     boolean isEncrypted();
-    Session session();                                                      // default to ACCESS_MODE.READ_WRITE
+    Session session();                                                      // default to AccessMode.READ_WRITE
                                                                             // default to Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.HIGH
+                                                                            // default to ToleranceForReplicationDelay.LOW
 
     Session session(AccessMode accessMode);                                 // default to Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.HIGH
+                                                                            // default to ToleranceForReplicationDelay.LOW
+
+    Session session(Consistency consistency);                               // default to AccessMode.READ_WRITE
+                                                                            // default to ToleranceForReplicationDelay.LOW
+
+    Session session(ToleranceForReplicationDelay toleranceForReplicationDelay);
+                                                                            // default to AccessMode.READ_WRITE
+                                                                            // default to Consistency.CAUSAL
 
     Session session(AccessMode accessMode,
-                    Consistency consistencyLevel);                         // default to ToleranceForReplicationDelay.HIGH
+                    Consistency consistency);                               // default to ToleranceForReplicationDelay.LOW
 
     Session session(AccessMode accessMode,
-                    Consistency consistencyLevel,
+                    ToleranceForReplicationDelay toleranceForReplicationDelay);
+                                                                           // default to Consistency.CAUSAL
+    Session session(AccessMode accessMode,
+                    Consistency consistency,
                     ToleranceForReplicationDelay toleranceForReplicationDelay);
 
     Session session(String bookmark);                                       // default to ACCESS_MODE.READ_WRITE
-                                                                            // default to Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.HIGH
+                                                                            // bookmark -->  Consistency.CAUSAL
+                                                                            // default to ToleranceForReplicationDelay.LOW
 
-    Session session(String bookmark, AccessMode accessMode);                // default to Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.HIGH
+    Session session(AccessMode accessMode, String bookmark);                // bookmark -->  Consistency.CAUSAL
+                                                                            // default to ToleranceForReplicationDelay.LOW
 
-    Session session(String bookmark,
-                    AccessMode accessMode,
-                    Consistency consistencyLevel);                         // default to ToleranceForReplicationDelay.HIGH
-
-    Session session(String bookmark,
-                    AccessMode accessMode,
-                    Consistency consistencyLevel,
-                    ToleranceForReplicationDelay toleranceForReplicationDelay);
+    Session session(AccessMode accessMode,
+                    ToleranceForReplicationDelay toleranceForReplicationDelay,
+                    String bookmark);                                       // bookmark -->  Consistency.CAUSAL
 }

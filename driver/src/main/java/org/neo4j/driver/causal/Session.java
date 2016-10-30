@@ -30,4 +30,8 @@ public interface Session extends Resource, StatementRunner
     void reset();
     @Override void close();
     String server();
+
+    Consistency consistency();
+    ToleranceForReplicationDelay toleranceForReplicationDelay();
+    AccessMode accessMode();
 }

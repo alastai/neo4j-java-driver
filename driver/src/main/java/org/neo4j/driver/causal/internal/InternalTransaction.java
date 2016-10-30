@@ -84,7 +84,7 @@ public class InternalTransaction implements Transaction
     public void close()
     {
         v1Transaction.close(); // this is the only action that changes the v1Session bookmark
-        parentSession.setBookmark(v1Session.lastBookmark());
+        parentSession.setBookmark(v1Session.lastBookmark()); // do this unconditionally, it will be a no-op if not bookmarking (null on null)
     }
 
     @Override
