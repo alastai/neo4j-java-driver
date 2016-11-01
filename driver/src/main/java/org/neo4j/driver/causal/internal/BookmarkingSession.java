@@ -19,8 +19,11 @@
 package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.Session;
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 
 public interface BookmarkingSession extends Session
 {
     void setBookmark(String bookmark);
+    org.neo4j.driver.v1.Session v1Session();
+    void refreshV1Session() throws ServiceUnavailableException;
 }

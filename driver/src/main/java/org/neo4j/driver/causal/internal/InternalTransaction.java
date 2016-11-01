@@ -26,6 +26,8 @@ import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
+import org.neo4j.driver.v1.exceptions.SessionExpiredException;
 import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
@@ -34,32 +36,93 @@ public class InternalTransaction implements Transaction
 {
     private final BookmarkingSession parentSession;
     private final AccessMode accessMode;
-    private final org.neo4j.driver.v1.Session v1Session;
     private final org.neo4j.driver.v1.Transaction v1Transaction;
     private Outcome outcome;
 
     public AccessMode getAccessMode()
     {
-        // doesn't exist ** return v1Session.getAccessMode();
         return this.accessMode;
     }
 
-    public InternalTransaction(BookmarkingSession parentSession, org.neo4j.driver.v1.Session v1Session, AccessMode accessMode)
+    public InternalTransaction(BookmarkingSession parentSession, AccessMode accessMode)
     {
         this.parentSession = parentSession;
-        this.v1Session = v1Session;
         this.accessMode = accessMode;
 
-        this.v1Transaction = this.v1Session.beginTransaction(); // will be READ for a READ session, and WRITE for a WRITE session
+        this.v1Transaction = resilientBeginTransaction(parentSession, null); // will be READ for a READ session, and WRITE for a WRITE session
     }
 
-    public InternalTransaction(BookmarkingSession parentSession, org.neo4j.driver.v1.Session v1Session, AccessMode accessMode, String bookmark)
+    public InternalTransaction(BookmarkingSession parentSession, AccessMode accessMode, String bookmark)
     {
         this.parentSession = parentSession;
-        this.v1Session = v1Session;
         this.accessMode = accessMode;
 
-        this.v1Transaction = this.v1Session.beginTransaction(bookmark); // will be READ for a READ session, and WRITE for a WRITE session
+        this.v1Transaction = resilientBeginTransaction(parentSession, bookmark); // will be READ for a READ session, and WRITE for a WRITE session
+    }
+
+    private org.neo4j.driver.v1.Transaction resilientBeginTransaction(BookmarkingSession parentSession, String bookmark)
+    {
+        BeginTransactionOutcome beginTransactionOutcome = null;
+
+        int attempted = 0;
+        while (attempted < 3) // the number of attempts intended
+        {
+            beginTransactionOutcome = attemptBeginTransaction(parentSession, bookmark);
+            if (beginTransactionOutcome.succeeded)
+            {
+                return beginTransactionOutcome.v1Transaction;
+            }
+            try
+            {
+                parentSession.refreshV1Session();
+            }
+            catch (ServiceUnavailableException serviceUnavailableException)
+            {
+                throw serviceUnavailableException;
+            }
+            attempted++;
+        }
+        throw beginTransactionOutcome.sessionExpiredException;
+    }
+
+    private BeginTransactionOutcome attemptBeginTransaction(BookmarkingSession parentSession, String bookmark)
+    {
+        try
+        {
+            if (null == bookmark)
+            {
+                return new BeginTransactionOutcome(parentSession.v1Session().beginTransaction());
+            }
+            else
+            {
+                return new BeginTransactionOutcome(parentSession.v1Session().beginTransaction(bookmark));
+            }
+        }
+        catch (SessionExpiredException sessionExpiredException)
+        {
+            return new BeginTransactionOutcome(sessionExpiredException);
+        }
+    }
+
+    private static class BeginTransactionOutcome
+    {
+        public final boolean succeeded;
+        public final org.neo4j.driver.v1.Transaction v1Transaction;
+        public final SessionExpiredException sessionExpiredException;
+
+        private BeginTransactionOutcome(SessionExpiredException sessionExpiredException)
+        {
+            this.succeeded = false;
+            this.v1Transaction = null;
+            this.sessionExpiredException = sessionExpiredException;
+        }
+
+        private BeginTransactionOutcome(org.neo4j.driver.v1.Transaction v1Transaction)
+        {
+            this.succeeded = true;
+            this.v1Transaction = v1Transaction;
+            this.sessionExpiredException = null;
+        }
     }
 
     @Override
@@ -84,7 +147,7 @@ public class InternalTransaction implements Transaction
     public void close()
     {
         v1Transaction.close(); // this is the only action that changes the v1Session bookmark
-        parentSession.setBookmark(v1Session.lastBookmark()); // do this unconditionally, it will be a no-op if not bookmarking (null on null)
+        parentSession.setBookmark(parentSession.v1Session().lastBookmark()); // do this unconditionally, it will be a no-op if not bookmarking (null on null)
     }
 
     @Override

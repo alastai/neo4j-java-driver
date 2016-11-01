@@ -23,6 +23,9 @@ import org.neo4j.driver.v1.AuthToken;
 
 public class GraphDatabase
 {
+    // TODO establish retry defaults to be used for session creation attempts
+    // and to be inherited as defaults for begin transaction and run attempts
+
     public static Driver driver(String uri, AuthToken authToken)
     {
         return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));

@@ -24,9 +24,11 @@ import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
+import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
@@ -86,10 +88,10 @@ public class ReadWriteSession implements BookmarkingSession
         switch (this.consistency)
         {
             case CAUSAL:
-                return new InternalTransaction(this, v1Session, accessMode, this.bookmark);
+                return new InternalTransaction(this, accessMode, this.bookmark);
             case EVENTUAL:
             default:
-                return new InternalTransaction(this, v1Session, accessMode);
+                return new InternalTransaction(this, accessMode);
         }
     }
 
@@ -240,6 +242,18 @@ public class ReadWriteSession implements BookmarkingSession
     public void setBookmark(String bookmark)
     {
         this.bookmark = bookmark;
+    }
+
+    @Override
+    public Session v1Session()
+    {
+        return null; // TODO and remember there are two sessions
+    }
+
+    @Override
+    public void refreshV1Session() throws ServiceUnavailableException
+    {
+        // TODO
     }
 
     @Override

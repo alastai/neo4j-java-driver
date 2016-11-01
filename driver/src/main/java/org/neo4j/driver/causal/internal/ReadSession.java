@@ -24,41 +24,50 @@ import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
+import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
 
 public class ReadSession implements BookmarkingSession
 {
-    private String bookmark;
-    private final AccessMode accessMode;
     private final Consistency consistency;
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
 
-    private final org.neo4j.driver.v1.Session v1ReadSession;
+    private final org.neo4j.driver.v1.Driver v1Driver;
+    private org.neo4j.driver.v1.Session v1ReadSession;
+
+    private String bookmark;
+
     private Transaction currentTransaction = null;
 
     public ReadSession(Driver v1Driver,
-                       AccessMode accessMode,
                        Consistency consistency,
                        ToleranceForReplicationDelay toleranceForReplicationDelay,
                        String bookmark)
     {
-        this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
-                                  // but check the specified consistency level, as that is authoritative: this may be the
-                                  // start of a causally consistent chain.
-
-                                  // If a Session is initialized with a bookmark, then bookmarking is turned on,
-                                  // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
-                                  // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
-        this.accessMode = accessMode;
         this.consistency = consistency;
         this.toleranceForReplicationDelay = toleranceForReplicationDelay;
 
-        this.v1ReadSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+        this.v1Driver = v1Driver;
+        this.v1ReadSession = establishV1Session();
+
+        this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
+        // but check the specified consistency level, as that is authoritative: this may be the
+        // start of a causally consistent chain.
+
+        // If a Session is initialized with a bookmark, then bookmarking is turned on,
+        // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
+        // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
+    }
+
+    private Session establishV1Session()
+    {
+        return this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
     }
 
     @Override
@@ -73,10 +82,10 @@ public class ReadSession implements BookmarkingSession
         switch (this.consistency)
         {
             case CAUSAL:
-                return new InternalTransaction(this, v1ReadSession, accessMode, bookmark);
+                return new InternalTransaction(this, accessMode, bookmark);
             case EVENTUAL:
             default:
-                return new InternalTransaction(this, v1ReadSession, accessMode);
+                return new InternalTransaction(this, accessMode);
         }
     }
 
@@ -153,6 +162,33 @@ public class ReadSession implements BookmarkingSession
     }
 
     @Override
+    public Session v1Session()
+    {
+        return this.v1ReadSession;
+    }
+
+    @Override
+    public void refreshV1Session() throws ServiceUnavailableException
+    {
+        // TODO check the circumstances where a create session can fail
+
+        CreateSessionOutcome createSessionOutcome = null;
+
+        int attempted = 0;
+        while (attempted < 3) // the number of attempts intended
+        {
+            createSessionOutcome = attemptRefreshSession();
+            if (createSessionOutcome.succeeded)
+            {
+                this.v1ReadSession = createSessionOutcome.v1Session;
+                return;
+            }
+            attempted++;
+        }
+        throw createSessionOutcome.serviceUnavailableException;
+    }
+
+    @Override
     public Consistency consistency()
     {
         return this.consistency;
@@ -167,6 +203,39 @@ public class ReadSession implements BookmarkingSession
     @Override
     public AccessMode accessMode()
     {
-        return this.accessMode;
+        return AccessMode.READ;
+    }
+
+    private CreateSessionOutcome attemptRefreshSession()
+    {
+        try
+        {
+            return new CreateSessionOutcome(establishV1Session());
+        }
+        catch (ServiceUnavailableException serviceUnavailableException)
+        {
+            return new CreateSessionOutcome(serviceUnavailableException);
+        }
+    }
+
+    private static class CreateSessionOutcome
+    {
+        public final boolean succeeded;
+        public final Session v1Session;
+        public final ServiceUnavailableException serviceUnavailableException;
+
+        private CreateSessionOutcome(ServiceUnavailableException serviceUnavailableException)
+        {
+            this.succeeded = false;
+            this.v1Session = null;
+            this.serviceUnavailableException = serviceUnavailableException;
+        }
+
+        private CreateSessionOutcome(Session v1Session)
+        {
+            this.succeeded = true;
+            this.v1Session = v1Session;
+            this.serviceUnavailableException = null;
+        }
     }
 }
