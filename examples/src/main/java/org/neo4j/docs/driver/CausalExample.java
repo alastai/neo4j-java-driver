@@ -25,6 +25,7 @@ import org.neo4j.driver.causal.GraphDatabase;
 import org.neo4j.driver.causal.Session;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.v1.AuthTokens;
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 
 import java.util.UUID;
 
@@ -92,26 +93,42 @@ public class CausalExample
     public static boolean readAndRereadWithCausallyConsistentSession(String label)
     {
         // imagine working in headless application that executes a stream of transactions
-        Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver1:7687",
-                AuthTokens.basic("neo4j", "neo"));
 
-        boolean matched;
-
-        try (Session causallyConsistentSession = driver.session()) // by default causally consistent and AccessMode.WRITE
+        try
         {
-            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
-            {
-                tx.run("CREATE (a:`" + label + "`)").consume();
-                tx.success();
-            }
+            Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver1:7687",
+                    AuthTokens.basic("neo4j", "neo"));
 
-            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+            boolean matched;
+
+            try (Session causallyConsistentSession = driver.session()) // by default causally consistent and AccessMode.WRITE
             {
-                matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
-                tx.success();
+                try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+                {
+                    tx.run("CREATE (a:`" + label + "`)").consume();
+                    tx.success();
+                }
+
+                try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+                {
+                    matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
+                    tx.success();
+                }
+                return matched;
             }
         }
-        return matched;
+        catch (ServiceUnavailableException serviceUnavailableException)
+        {
+            // this is the only expected exception: any cluster server failure or cluster membership/role change should be
+            // handled automagically
+
+            return false; // restart app? modify config? tell user agent that the service isn't available? etc
+        }
+        finally
+        {
+            // something truly unexpected has happened
+            return false;
+        }
     }
 
     public static boolean readFromAnywhereInEventuallyConsistentSession(String label)
@@ -122,9 +139,9 @@ public class CausalExample
 
         boolean matched;
 
-        try (Session causallyConsistentSession = driver.session(Consistency.EVENTUAL)) // AccessMode.WRITE
+        try (Session eventuallyConsistentSession = driver.session(Consistency.EVENTUAL)) // AccessMode.WRITE
         {
-            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+            try (Transaction tx = eventuallyConsistentSession.beginTransaction(AccessMode.READ))
             {
                 matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
                 tx.success();
@@ -132,7 +149,7 @@ public class CausalExample
 
             // very hard to emulate -- let's imagine that we are experiencing negative time travel
 
-            try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+            try (Transaction tx = eventuallyConsistentSession.beginTransaction(AccessMode.READ))
             {
                 matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
                 tx.success();

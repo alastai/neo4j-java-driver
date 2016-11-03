@@ -107,7 +107,7 @@ public class InternalDriver implements Driver
                 return new ReadWriteSession(v1Driver, accessMode, consistency, toleranceForReplicationDelay, bookmark);
             case READ:
             default:
-                return new ReadSession(v1Driver, accessMode, consistency, toleranceForReplicationDelay, bookmark);
+                return new ReadSession(v1Driver, consistency, toleranceForReplicationDelay, bookmark);
         }
     }
 

@@ -1,15 +1,15 @@
 /**
  * Copyright (c) 2002-2016 "Neo Technology,"
  * Network Engine for Objects in Lund AB [http://neotechnology.com]
- *
+ * <p>
  * This file is part of Neo4j.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,15 +19,15 @@
 package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.AccessMode;
-import org.neo4j.driver.causal.Outcome;
+import org.neo4j.driver.causal.RetriableAction;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.causal.TransactionState;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.v1.exceptions.Neo4jException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
-import org.neo4j.driver.v1.exceptions.SessionExpiredException;
 import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
@@ -37,7 +37,7 @@ public class InternalTransaction implements Transaction
     private final BookmarkingSession parentSession;
     private final AccessMode accessMode;
     private final org.neo4j.driver.v1.Transaction v1Transaction;
-    private Outcome outcome;
+    private org.neo4j.driver.causal.Outcome outcome;
 
     public AccessMode getAccessMode()
     {
@@ -62,67 +62,44 @@ public class InternalTransaction implements Transaction
 
     private org.neo4j.driver.v1.Transaction resilientBeginTransaction(BookmarkingSession parentSession, String bookmark)
     {
-        BeginTransactionOutcome beginTransactionOutcome = null;
+        RetriableAction.Outcome<org.neo4j.driver.v1.Transaction, Neo4jException> beginTransactionOutcome = null;
+
+        // TODO inject configuration
 
         int attempted = 0;
         while (attempted < 3) // the number of attempts intended
         {
-            beginTransactionOutcome = attemptBeginTransaction(parentSession, bookmark);
-            if (beginTransactionOutcome.succeeded)
+            beginTransactionOutcome = RetriableAction.attemptWork(() ->
             {
-                return beginTransactionOutcome.v1Transaction;
+                if (null == bookmark)
+                {
+                    return parentSession.v1Session().beginTransaction();
+                }
+                else
+                {
+                    return parentSession.v1Session().beginTransaction(bookmark);
+                }
+            });
+
+            if (beginTransactionOutcome.succeeded())
+            {
+                return beginTransactionOutcome.result();
             }
             try
             {
-                parentSession.refreshV1Session();
+                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
             {
+                // in a sense this is pointless, belabouring the point that this exception can fly out
+                // however, if we imagine logging that this happened here, then it would have a function
+                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
+
                 throw serviceUnavailableException;
             }
             attempted++;
         }
-        throw beginTransactionOutcome.sessionExpiredException;
-    }
-
-    private BeginTransactionOutcome attemptBeginTransaction(BookmarkingSession parentSession, String bookmark)
-    {
-        try
-        {
-            if (null == bookmark)
-            {
-                return new BeginTransactionOutcome(parentSession.v1Session().beginTransaction());
-            }
-            else
-            {
-                return new BeginTransactionOutcome(parentSession.v1Session().beginTransaction(bookmark));
-            }
-        }
-        catch (SessionExpiredException sessionExpiredException)
-        {
-            return new BeginTransactionOutcome(sessionExpiredException);
-        }
-    }
-
-    private static class BeginTransactionOutcome
-    {
-        public final boolean succeeded;
-        public final org.neo4j.driver.v1.Transaction v1Transaction;
-        public final SessionExpiredException sessionExpiredException;
-
-        private BeginTransactionOutcome(SessionExpiredException sessionExpiredException)
-        {
-            this.succeeded = false;
-            this.v1Transaction = null;
-            this.sessionExpiredException = sessionExpiredException;
-        }
-
-        private BeginTransactionOutcome(org.neo4j.driver.v1.Transaction v1Transaction)
-        {
-            this.succeeded = true;
-            this.v1Transaction = v1Transaction;
-            this.sessionExpiredException = null;
-        }
+        throw beginTransactionOutcome.exception();
     }
 
     @Override
@@ -151,9 +128,11 @@ public class InternalTransaction implements Transaction
     }
 
     @Override
-    public Outcome getOutcome()
+    public org.neo4j.driver.causal.Outcome getOutcome()
     {
         return null;
+
+        // TODO
         // this requires 1) access to impl object, 2) opening up private state info systematically,
         // and 3) returning null if not one of the Outcome states.
     }
@@ -162,6 +141,8 @@ public class InternalTransaction implements Transaction
     public TransactionState getTransactionState()
     {
         return null;
+
+        // TODO
         // this requires 1) access to impl object, 2) opening up private state info systematically
     }
 
@@ -173,6 +154,11 @@ public class InternalTransaction implements Transaction
 
     @Override
     public StatementResult run(String statementTemplate, Map<String, Object> statementParameters)
+    {
+        return resilientRun(statementTemplate, statementParameters);
+    }
+
+    private StatementResult resilientRun(String statementTemplate, Map<String, Object> statementParameters)
     {
         return v1Transaction.run(statementTemplate, statementParameters);
     }

@@ -54,7 +54,7 @@ public class ReadSession implements BookmarkingSession
         this.toleranceForReplicationDelay = toleranceForReplicationDelay;
 
         this.v1Driver = v1Driver;
-        this.v1ReadSession = establishV1Session();
+        this.v1ReadSession = this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
 
         this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
         // but check the specified consistency level, as that is authoritative: this may be the
@@ -63,11 +63,6 @@ public class ReadSession implements BookmarkingSession
         // If a Session is initialized with a bookmark, then bookmarking is turned on,
         // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
         // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
-    }
-
-    private Session establishV1Session()
-    {
-        return this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
     }
 
     @Override
@@ -170,22 +165,16 @@ public class ReadSession implements BookmarkingSession
     @Override
     public void refreshV1Session() throws ServiceUnavailableException
     {
-        // TODO check the circumstances where a create session can fail
-
-        CreateSessionOutcome createSessionOutcome = null;
-
-        int attempted = 0;
-        while (attempted < 3) // the number of attempts intended
+        try
         {
-            createSessionOutcome = attemptRefreshSession();
-            if (createSessionOutcome.succeeded)
-            {
-                this.v1ReadSession = createSessionOutcome.v1Session;
-                return;
-            }
-            attempted++;
+            this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
         }
-        throw createSessionOutcome.serviceUnavailableException;
+        catch (ServiceUnavailableException serviceUnavailableException)
+        {
+            // if we get here, then the driver is out of the water
+            v1Driver.close(); //
+            throw serviceUnavailableException; // app gets the fatal error and should give up at this point
+        }
     }
 
     @Override
@@ -204,38 +193,5 @@ public class ReadSession implements BookmarkingSession
     public AccessMode accessMode()
     {
         return AccessMode.READ;
-    }
-
-    private CreateSessionOutcome attemptRefreshSession()
-    {
-        try
-        {
-            return new CreateSessionOutcome(establishV1Session());
-        }
-        catch (ServiceUnavailableException serviceUnavailableException)
-        {
-            return new CreateSessionOutcome(serviceUnavailableException);
-        }
-    }
-
-    private static class CreateSessionOutcome
-    {
-        public final boolean succeeded;
-        public final Session v1Session;
-        public final ServiceUnavailableException serviceUnavailableException;
-
-        private CreateSessionOutcome(ServiceUnavailableException serviceUnavailableException)
-        {
-            this.succeeded = false;
-            this.v1Session = null;
-            this.serviceUnavailableException = serviceUnavailableException;
-        }
-
-        private CreateSessionOutcome(Session v1Session)
-        {
-            this.succeeded = true;
-            this.v1Session = v1Session;
-            this.serviceUnavailableException = null;
-        }
     }
 }
