@@ -42,7 +42,6 @@ public class ReadSession implements BookmarkingSession
     private org.neo4j.driver.v1.Session v1ReadSession;
 
     private String bookmark;
-
     private Transaction currentTransaction = null;
 
     public ReadSession(Driver v1Driver,
@@ -114,6 +113,9 @@ public class ReadSession implements BookmarkingSession
         return v1ReadSession.server();
     }
 
+
+    // TODO -- these Session-driven runs seem redundant, but could be handled ...
+
     @Override
     public StatementResult run(String statementTemplate, Value parameters)
     {
@@ -157,14 +159,23 @@ public class ReadSession implements BookmarkingSession
     }
 
     @Override
-    public Session v1Session()
+    public Session v1Session(AccessMode accessMode)
     {
+        if (accessMode != AccessMode.READ) // this is switched to allow implementaton in ReadWriteSession
+        {
+            throw new IllegalArgumentException();
+        }
         return this.v1ReadSession;
     }
 
     @Override
-    public void refreshV1Session() throws ServiceUnavailableException
+    public void refreshV1Session(AccessMode accessMode) throws ServiceUnavailableException
     {
+        if (accessMode != AccessMode.READ) // this is switched to allow implementaton in ReadWriteSession
+        {
+            throw new IllegalArgumentException();
+        }
+
         try
         {
             this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);

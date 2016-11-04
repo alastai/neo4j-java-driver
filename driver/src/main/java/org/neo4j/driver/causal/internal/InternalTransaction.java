@@ -44,7 +44,7 @@ public class InternalTransaction implements Transaction
     private final org.neo4j.driver.v1.Transaction v1Transaction;
     private org.neo4j.driver.causal.Outcome outcome;
 
-    public AccessMode getAccessMode()
+    public AccessMode accessMode()
     {
         return this.accessMode;
     }
@@ -77,11 +77,11 @@ public class InternalTransaction implements Transaction
             {
                 if (null == bookmark)
                 {
-                    return parentSession.v1Session().beginTransaction();
+                    return parentSession.v1Session(this.accessMode).beginTransaction();
                 }
                 else
                 {
-                    return parentSession.v1Session().beginTransaction(bookmark);
+                    return parentSession.v1Session(this.accessMode).beginTransaction(bookmark);
                 }
             });
 
@@ -91,7 +91,7 @@ public class InternalTransaction implements Transaction
             }
             try
             {
-                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
+                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
             {
@@ -128,7 +128,7 @@ public class InternalTransaction implements Transaction
     public void close()
     {
         v1Transaction.close(); // this is the only action that changes the v1Session bookmark
-        parentSession.setBookmark(parentSession.v1Session().lastBookmark()); // do this unconditionally, it will be a no-op if not bookmarking (null on null)
+        parentSession.setBookmark(parentSession.v1Session(this.accessMode).lastBookmark()); // do this unconditionally, it will be a no-op if not bookmarking (null on null)
     }
 
     @Override
@@ -249,7 +249,7 @@ public class InternalTransaction implements Transaction
             }
             try
             {
-                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
+                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
             {
@@ -291,7 +291,7 @@ public class InternalTransaction implements Transaction
             }
             try
             {
-                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
+                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
             {
@@ -333,7 +333,7 @@ public class InternalTransaction implements Transaction
             }
             try
             {
-                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
+                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
             {
@@ -375,7 +375,7 @@ public class InternalTransaction implements Transaction
             }
             try
             {
-                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
+                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
             {

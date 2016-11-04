@@ -23,7 +23,7 @@ import org.neo4j.driver.v1.util.Resource;
 
 public interface Transaction extends Resource, StatementRunner
 {
-    AccessMode getAccessMode();
+    AccessMode accessMode();
     void success();
     void failure();
     @Override void close();

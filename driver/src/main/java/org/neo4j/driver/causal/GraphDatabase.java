@@ -49,7 +49,7 @@ public class GraphDatabase
         return null;
     }
 
-    public static Driver superClusterDriver(Iterable<String> uri, AuthToken authToken) // just alternatives, cycle for the lazy app
+    public static Driver superClusterDriver(Iterable<String> uri, AuthToken authToken) // music of the future
     {
         // TODO return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
         return null;

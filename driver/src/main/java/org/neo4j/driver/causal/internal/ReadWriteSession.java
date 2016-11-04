@@ -35,13 +35,15 @@ import java.util.Map;
 
 public class ReadWriteSession implements BookmarkingSession
 {
-    private String bookmark;
     private final AccessMode accessMode;
     private final Consistency consistency;
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
 
+    private final org.neo4j.driver.v1.Driver v1Driver;
     private final org.neo4j.driver.v1.Session v1ReadSession;
     private final org.neo4j.driver.v1.Session v1WriteSession;
+
+    private String bookmark;
     private Transaction currentTransaction = null;
 
     public ReadWriteSession(Driver v1Driver,
@@ -50,6 +52,14 @@ public class ReadWriteSession implements BookmarkingSession
                             ToleranceForReplicationDelay toleranceForReplicationDelay, 
                             String bookmark)
     {
+        this.accessMode = accessMode;
+        this.consistency = consistency;
+        this.toleranceForReplicationDelay = toleranceForReplicationDelay;
+
+        this.v1Driver = v1Driver;
+        this.v1ReadSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+        this.v1WriteSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
+
         this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
                                   // but check the specified consistency level in that case, as that is authoritative:
                                   // this may be the start of a causally consistent chain.
@@ -57,12 +67,6 @@ public class ReadWriteSession implements BookmarkingSession
                                   // If a Session is initialized with a bookmark, then bookmarking is turned on,
                                   // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
                                   // from V1 sessions. Causal sessions are fed bookmarks and yield bookmarks
-        this.accessMode = accessMode;
-        this.consistency = consistency;
-        this.toleranceForReplicationDelay = toleranceForReplicationDelay;
-
-        this.v1ReadSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
-        this.v1WriteSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
     }
 
     @Override
@@ -74,17 +78,6 @@ public class ReadWriteSession implements BookmarkingSession
     @Override
     public Transaction beginTransaction(AccessMode accessMode)
     {
-        org.neo4j.driver.v1.Session v1Session;
-
-        switch (accessMode)
-        {
-            case READ:
-                v1Session = this.v1ReadSession;
-            case WRITE:
-            default:
-                v1Session = this.v1WriteSession;
-        }
-
         switch (this.consistency)
         {
             case CAUSAL:
@@ -159,6 +152,8 @@ public class ReadWriteSession implements BookmarkingSession
                 return v1WriteSession.server();
         }
     }
+
+    // TODO -- these Session-driven runs seem redundant, but could be handled ...
 
     @Override
     public StatementResult run(String statementTemplate, Value parameters)
@@ -245,15 +240,46 @@ public class ReadWriteSession implements BookmarkingSession
     }
 
     @Override
-    public Session v1Session()
+    public Session v1Session(AccessMode accessMode)
     {
-        return null; // TODO and remember there are two sessions
+        switch (accessMode)
+        {
+            case READ:
+            {
+                return v1ReadSession;
+            }
+            case WRITE:
+            default:
+            {
+                return v1WriteSession;
+            }
+        }
     }
 
     @Override
-    public void refreshV1Session() throws ServiceUnavailableException
+    public void refreshV1Session(AccessMode accessMode) throws ServiceUnavailableException
     {
-        // TODO
+        try
+        {
+            switch (accessMode)
+            {
+                case READ:
+                {
+                    this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+                }
+                case WRITE:
+                default:
+                {
+                    this.v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
+                }
+            }
+        }
+        catch (ServiceUnavailableException serviceUnavailableException)
+        {
+            // if we get here, then the driver is out of the water
+            v1Driver.close(); //
+            throw serviceUnavailableException; // app gets the fatal error and should give up at this point
+        }
     }
 
     @Override
