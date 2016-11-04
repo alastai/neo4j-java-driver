@@ -18,20 +18,17 @@
  */
 package org.neo4j.driver.causal;
 
-import org.neo4j.driver.v1.StatementRunner;
 import org.neo4j.driver.v1.util.Resource;
 
-public interface Session extends Resource, StatementRunner
+public interface Session extends Resource
 {
     Transaction beginTransaction();
     Transaction beginTransaction(AccessMode accessMode);
 
     String lastBookmark();
-    void reset();
     @Override void close();
-    String server();
 
     Consistency consistency();
     ToleranceForReplicationDelay toleranceForReplicationDelay();
-    AccessMode accessMode();
+    AccessMode defaultTransactionAccessMode();
 }

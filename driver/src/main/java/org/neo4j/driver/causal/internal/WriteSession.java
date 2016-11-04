@@ -26,33 +26,35 @@ import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Session;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 
-public class ReadSession implements BookmarkingSession
+public class WriteSession implements BookmarkingSession
 {
-    private static final AccessMode DEFAULT_ACCESS_MODE = AccessMode.READ;
+    private static final AccessMode DEFAULT_ACCESS_MODE = AccessMode.WRITE;
 
     private final Consistency consistency;
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
 
     private final org.neo4j.driver.v1.Driver v1Driver;
-    private org.neo4j.driver.v1.Session v1ReadSession;
+    private final org.neo4j.driver.v1.Session v1ReadSession;
+    private final org.neo4j.driver.v1.Session v1WriteSession;
 
     private String bookmark;
     private Transaction currentTransaction = null;
 
-    public ReadSession(Driver v1Driver,
-                       Consistency consistency,
-                       ToleranceForReplicationDelay toleranceForReplicationDelay,
-                       String bookmark)
+    public WriteSession(Driver v1Driver,
+                        Consistency consistency,
+                        ToleranceForReplicationDelay toleranceForReplicationDelay,
+                        String bookmark)
     {
         this.consistency = consistency;
         this.toleranceForReplicationDelay = toleranceForReplicationDelay;
 
         this.v1Driver = v1Driver;
-        this.v1ReadSession = this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+        this.v1ReadSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+        this.v1WriteSession = v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
 
         this.bookmark = bookmark; // May be null: in which case bookmarking may be turned off in this session,
-        // but check the specified consistency level, as that is authoritative: this may be the
-        // start of a causally consistent chain.
+        // but check the specified consistency level in that case, as that is authoritative:
+        // this may be the start of a causally consistent chain.
 
         // If a Session is initialized with a bookmark, then bookmarking is turned on,
         // which means that V1 transactions are fed bookmarks, and bookmarks are extracted
@@ -62,7 +64,7 @@ public class ReadSession implements BookmarkingSession
     @Override
     public Transaction beginTransaction()
     {
-        return beginTransaction(AccessMode.READ);
+        return beginTransaction(AccessMode.WRITE);
     }
 
     @Override
@@ -71,7 +73,7 @@ public class ReadSession implements BookmarkingSession
         switch (this.consistency)
         {
             case CAUSAL:
-                return new InternalTransaction(this, accessMode, bookmark);
+                return new InternalTransaction(this, accessMode, this.bookmark);
             case EVENTUAL:
             default:
                 return new InternalTransaction(this, accessMode);
@@ -81,19 +83,69 @@ public class ReadSession implements BookmarkingSession
     @Override
     public String lastBookmark()
     {
-        return this.bookmark; // may be null, may be the initial value, may be the value updated by a transaction close
+        return this.bookmark;
     }
 
     @Override
     public boolean isOpen()
     {
-        return v1ReadSession.isOpen();
+        return true; // is this meaningful at this level?
     }
 
     @Override
     public void close()
     {
         v1ReadSession.close();
+        v1WriteSession.close();
+    }
+
+    @Override
+    public void setBookmark(String bookmark)
+    {
+        this.bookmark = bookmark;
+    }
+
+    @Override
+    public Session v1Session(AccessMode accessMode)
+    {
+        switch (accessMode)
+        {
+            case READ:
+            {
+                return v1ReadSession;
+            }
+            case WRITE:
+            default:
+            {
+                return v1WriteSession;
+            }
+        }
+    }
+
+    @Override
+    public void refreshV1Session(AccessMode accessMode) throws ServiceUnavailableException
+    {
+        try
+        {
+            switch (accessMode)
+            {
+                case READ:
+                {
+                    this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+                }
+                case WRITE:
+                default:
+                {
+                    this.v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
+                }
+            }
+        }
+        catch (ServiceUnavailableException serviceUnavailableException)
+        {
+            // if we get here, then the driver is out of the water
+            v1Driver.close(); //
+            throw serviceUnavailableException; // app gets the fatal error and should give up at this point
+        }
     }
 
     @Override
@@ -112,33 +164,5 @@ public class ReadSession implements BookmarkingSession
     public AccessMode defaultTransactionAccessMode()
     {
         return DEFAULT_ACCESS_MODE;
-    }
-
-    @Override
-    public void setBookmark(String bookmark)
-    {
-        this.bookmark = bookmark; // invoked at the point of commit of the v1 transaction, by InternalTransaction
-    }
-
-    @Override
-    public Session v1Session(AccessMode accessMode)
-    {
-        return this.v1ReadSession;
-    }
-
-    @Override
-    public void refreshV1Session(AccessMode accessMode) throws ServiceUnavailableException
-    {
-        try
-        {
-            this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
-        }
-        catch (ServiceUnavailableException serviceUnavailableException)
-        {
-            // if we get here, then the driver is out of the water
-            v1Driver.close(); //
-            throw serviceUnavailableException; // app gets the fatal error and should give up at this point
-        }
-
     }
 }

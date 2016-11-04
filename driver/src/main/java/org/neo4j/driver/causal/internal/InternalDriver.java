@@ -104,7 +104,7 @@ public class InternalDriver implements Driver
         switch (accessMode)
         {
             case WRITE:
-                return new ReadWriteSession(v1Driver, accessMode, consistency, toleranceForReplicationDelay, bookmark);
+                return new WriteSession(v1Driver, consistency, toleranceForReplicationDelay, bookmark);
             case READ:
             default:
                 return new ReadSession(v1Driver, consistency, toleranceForReplicationDelay, bookmark);
