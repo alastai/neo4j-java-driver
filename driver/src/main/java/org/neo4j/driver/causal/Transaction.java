@@ -27,6 +27,9 @@ public interface Transaction extends Resource, StatementRunner
     void success();
     void failure();
     @Override void close();
-    Outcome getOutcome(); // only meaningful after close()
+    Outcome getOutcome(); // only meaningful after close() ... which is all wrong
+                          // this poses the need for a commit() and a rollback()
+    Outcome commit();
+    Outcome rollback();
     TransactionState getTransactionState();
 }

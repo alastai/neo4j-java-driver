@@ -28,6 +28,8 @@ public class GraphDatabase
 
     public static Driver driver(String uri, AuthToken authToken)
     {
+        // TODO discriminate between bolt:// and bolt+routing://?
+
         return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
     }
 

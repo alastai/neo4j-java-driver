@@ -42,7 +42,7 @@ public class InternalDriver implements Driver
     @Override
     public Session session()
     {
-        return session(AccessMode.READ_WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null); // should we default to causal consistency within a session?
+        return session(AccessMode.WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null); // should we default to causal consistency within a session?
     }
 
     @Override
@@ -84,7 +84,7 @@ public class InternalDriver implements Driver
     @Override
     public Session session(String bookmark)
     {
-        return session(AccessMode.READ_WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
+        return session(AccessMode.WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
     }
 
     @Override

@@ -56,7 +56,7 @@ public class CausalExample
         try (Session readSession = driver.session(AccessMode.READ, bookmark))
         {
 
-            try (Transaction tx = readSession.beginTransaction()) // TODO establish default access mode from the session
+            try (Transaction tx = readSession.beginTransaction()) // by default this will be a READ
             {
                 matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
                 tx.success();

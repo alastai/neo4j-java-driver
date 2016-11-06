@@ -34,8 +34,8 @@ public class WriteSession implements BookmarkingSession
     private final ToleranceForReplicationDelay toleranceForReplicationDelay;
 
     private final org.neo4j.driver.v1.Driver v1Driver;
-    private final org.neo4j.driver.v1.Session v1ReadSession;
-    private final org.neo4j.driver.v1.Session v1WriteSession;
+    private org.neo4j.driver.v1.Session v1ReadSession;
+    private org.neo4j.driver.v1.Session v1WriteSession;
 
     private String bookmark;
     private Transaction currentTransaction = null;
@@ -96,7 +96,7 @@ public class WriteSession implements BookmarkingSession
     public void close()
     {
         v1ReadSession.close();
-        v1WriteSession.close();
+        v1WriteSession.close(); // TODO check if these are idempotent: the two sessions may be the same thing
     }
 
     @Override
@@ -108,7 +108,7 @@ public class WriteSession implements BookmarkingSession
     @Override
     public Session v1Session(AccessMode accessMode)
     {
-        switch (accessMode)
+        switch (accessMode) // make sure the right session is doled out depending on transaction access mode
         {
             case READ:
             {
@@ -131,12 +131,12 @@ public class WriteSession implements BookmarkingSession
             {
                 case READ:
                 {
-                    this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+                    this.v1ReadSession = this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
                 }
                 case WRITE:
                 default:
                 {
-                    this.v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
+                    this.v1WriteSession = this.v1Driver.session(org.neo4j.driver.v1.AccessMode.WRITE);
                 }
             }
         }

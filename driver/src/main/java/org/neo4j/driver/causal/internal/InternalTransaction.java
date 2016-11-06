@@ -1,15 +1,15 @@
 /**
  * Copyright (c) 2002-2016 "Neo Technology,"
  * Network Engine for Objects in Lund AB [http://neotechnology.com]
- *
+ * <p>
  * This file is part of Neo4j.
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,13 +19,17 @@
 package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.AccessMode;
+import org.neo4j.driver.causal.Outcome;
 import org.neo4j.driver.causal.RetriableAction;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.causal.TransactionState;
+import org.neo4j.driver.causal.UnknownTransactionOutcomeException;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
+import org.neo4j.driver.v1.exceptions.ClientException;
+import org.neo4j.driver.v1.exceptions.DatabaseException;
 import org.neo4j.driver.v1.exceptions.Neo4jException;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.types.TypeSystem;
@@ -37,12 +41,15 @@ public class InternalTransaction implements Transaction
     // TODO configure these values
 
     final static int DEFAULT_ATTEMPTS_TO_RUN = 3;
+    final static int DEFAULT_RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = 100;
     final static int DEFAULT_ATTEMPTS_TO_BEGIN_TRANSACTION = 3;
+    final static int DEFAULT_BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = 100;
 
     private final BookmarkingSession parentSession;
     private final AccessMode accessMode;
     private final org.neo4j.driver.v1.Transaction v1Transaction;
     private org.neo4j.driver.causal.Outcome outcome;
+    private final String bookmark;
 
     public AccessMode accessMode()
     {
@@ -51,16 +58,14 @@ public class InternalTransaction implements Transaction
 
     public InternalTransaction(BookmarkingSession parentSession, AccessMode accessMode)
     {
-        this.parentSession = parentSession;
-        this.accessMode = accessMode;
-
-        this.v1Transaction = resilientBeginTransaction(parentSession, null); // will be READ for a READ session, and WRITE for a WRITE session
+        this(parentSession, accessMode, null); // will be READ for a READ session, and WRITE for a WRITE session
     }
 
     public InternalTransaction(BookmarkingSession parentSession, AccessMode accessMode, String bookmark)
     {
         this.parentSession = parentSession;
         this.accessMode = accessMode;
+        this.bookmark = bookmark;
 
         this.v1Transaction = resilientBeginTransaction(parentSession, bookmark); // will be READ for a READ session, and WRITE for a WRITE session
     }
@@ -89,6 +94,15 @@ public class InternalTransaction implements Transaction
             {
                 return beginTransactionOutcome.result();
             }
+
+            if ((beginTransactionOutcome.exception() instanceof ClientException) ||   // proper impl would prevent this kind of double exception juggling: ClientException is created by driver
+                    (beginTransactionOutcome.exception() instanceof DatabaseException))
+            {
+                throw beginTransactionOutcome.exception();
+            }
+
+            // ConnectionFailureException, TransientExceptiona and SessionExpiredException are considered retriable
+
             try
             {
                 parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
@@ -102,6 +116,14 @@ public class InternalTransaction implements Transaction
                 throw serviceUnavailableException;
             }
             attempted++;
+            try
+            {
+
+            }
+            catch (Exception exception)
+            {
+
+            }
         }
         throw beginTransactionOutcome.exception();
     }
@@ -142,6 +164,30 @@ public class InternalTransaction implements Transaction
     }
 
     @Override
+    public Outcome commit()
+    {
+        success();
+        close();
+        return getOutcome(); // state management -- if good then COMMITTED
+        // idempotence issues too
+    }
+
+    @Override
+    public Outcome rollback()
+    {
+        failure();
+        try
+        {
+            close();
+        }
+        catch (Exception exception)
+        {
+            // no-op suppress the exception
+        }
+        return getOutcome();
+    }
+
+    @Override
     public TransactionState getTransactionState()
     {
         return null;
@@ -159,202 +205,34 @@ public class InternalTransaction implements Transaction
     @Override
     public StatementResult run(String statementTemplate, Map<String, Object> statementParameters)
     {
-        return resilientRun(statementTemplate, statementParameters);
-    }
-
-/* playing with streams and reflection:
-
-
-    private StatementResult resilientRunT(String statementTemplate, Object statementParameters) throws Exception
-    {
-        Class statementParametersClass = statementParameters.getClass();
-        Class v1TransactionClass = v1Transaction.getClass();
-        List<Method> methods = Arrays.asList(v1TransactionClass.getMethods());
-
-        Method methodToInvoke = methods.stream()
-                .filter(method -> method.getName().equals("run"))
-                .filter(method ->
-                {
-                    Stream parameters = Stream.of(method.getParameterTypes());
-                    return parameters
-                            .anyMatch(parameter -> (parameter.getClass().getName().equals(statementParametersClass.getName())));
-                })
-                .findFirst()
-                .get();
-
-        RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
-
-        int attemptsToRun = DEFAULT_ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
-                                                     // isn't the server dead?
-        int attempted = 0;
-
-        while (attempted < attemptsToRun) // the number of attempts intended
-        {
-            runOutcome = RetriableAction.attemptWork(() ->
-            {
-                try
-                {
-                    return methodToInvoke.invoke(v1Transaction, statementTemplate, statementParametersClass.cast(statementParameters));
-                }
-                catch (IllegalAccessException e)
-                {
-                    e.printStackTrace();
-                }
-                catch (InvocationTargetException e)
-                {
-                    e.printStackTrace();
-                }
-            });
-
-            if (runOutcome.succeeded())
-            {
-                return runOutcome.result();
-            }
-            try
-            {
-                parentSession.refreshV1Session(); // this is worth doing: sessions can be established on still-live or new-role servers
-            }
-            catch (ServiceUnavailableException serviceUnavailableException)
-            {
-                // in a sense this is pointless, belabouring the point that this exception can fly out
-                // however, if we imagine logging that this happened here, then it would have a function
-                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
-
-                throw serviceUnavailableException;
-            }
-            attempted++;
-        }
-        throw runOutcome.exception();
-    }
-*/
-
-    private StatementResult resilientRun(String statementTemplate, Map<String, Object> statementParameters)
-    {
-        RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
-
-        int attemptsToRun = DEFAULT_ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
-        // isn't the server dead?
-        int attempted = 0;
-
-        while (attempted < attemptsToRun) // the number of attempts intended
-        {
-            runOutcome = RetriableAction.attemptWork(() ->
-            {
-                return v1Transaction.run(statementTemplate, statementParameters);
-            });
-
-            if (runOutcome.succeeded())
-            {
-                return runOutcome.result();
-            }
-            try
-            {
-                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
-            }
-            catch (ServiceUnavailableException serviceUnavailableException)
-            {
-                // in a sense this is pointless, belabouring the point that this exception can fly out
-                // however, if we imagine logging that this happened here, then it would have a function
-                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
-
-                throw serviceUnavailableException;
-            }
-            attempted++;
-        }
-        throw runOutcome.exception();
+        return resilientRun(() -> v1Transaction.run(statementTemplate, statementParameters));
     }
 
     @Override
     public StatementResult run(String statementTemplate, Record statementParameters)
     {
-        return resilientRun(statementTemplate, statementParameters);
-    }
-
-    private StatementResult resilientRun(String statementTemplate, Record statementParameters)
-    {
-        RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
-
-        int attemptsToRun = DEFAULT_ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
-        // isn't the server dead?
-        int attempted = 0;
-
-        while (attempted < attemptsToRun) // the number of attempts intended
-        {
-            runOutcome = RetriableAction.attemptWork(() ->
-            {
-                return v1Transaction.run(statementTemplate, statementParameters);
-            });
-
-            if (runOutcome.succeeded())
-            {
-                return runOutcome.result();
-            }
-            try
-            {
-                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
-            }
-            catch (ServiceUnavailableException serviceUnavailableException)
-            {
-                // in a sense this is pointless, belabouring the point that this exception can fly out
-                // however, if we imagine logging that this happened here, then it would have a function
-                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
-
-                throw serviceUnavailableException;
-            }
-            attempted++;
-        }
-        throw runOutcome.exception();
+        return resilientRun(() -> v1Transaction.run(statementTemplate, statementParameters));
     }
 
     @Override
     public StatementResult run(String statementTemplate)
     {
-        return resilientRun(statementTemplate);
-    }
-
-    private StatementResult resilientRun(String statementTemplate)
-    {
-        RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
-
-        int attemptsToRun = DEFAULT_ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
-        // isn't the server dead?
-        int attempted = 0;
-
-        while (attempted < attemptsToRun) // the number of attempts intended
-        {
-            runOutcome = RetriableAction.attemptWork(() ->
-            {
-                return v1Transaction.run(statementTemplate);
-            });
-
-            if (runOutcome.succeeded())
-            {
-                return runOutcome.result();
-            }
-            try
-            {
-                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
-            }
-            catch (ServiceUnavailableException serviceUnavailableException)
-            {
-                // in a sense this is pointless, belabouring the point that this exception can fly out
-                // however, if we imagine logging that this happened here, then it would have a function
-                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
-
-                throw serviceUnavailableException;
-            }
-            attempted++;
-        }
-        throw runOutcome.exception();
+        return resilientRun(() -> v1Transaction.run(statementTemplate));
     }
 
     @Override
     public StatementResult run(Statement statement)
     {
-        return resilientRun(statement);
+        return resilientRun(() -> v1Transaction.run(statement));
     }
 
-    private StatementResult resilientRun(Statement statement)
+    @FunctionalInterface
+    private interface RunAction
+    {
+        StatementResult work();
+    }
+
+    private StatementResult resilientRun(RunAction runAction)
     {
         RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
 
@@ -362,32 +240,29 @@ public class InternalTransaction implements Transaction
         // isn't the server dead?
         int attempted = 0;
 
-        while (attempted < attemptsToRun) // the number of attempts intended
+        try
         {
-            runOutcome = RetriableAction.attemptWork(() ->
+            while (attempted < attemptsToRun) // the number of attempts intended
             {
-                return v1Transaction.run(statement);
-            });
+                runOutcome = RetriableAction.attemptWork(runAction::work);
 
-            if (runOutcome.succeeded())
-            {
-                return runOutcome.result();
-            }
-            try
-            {
-                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
-            }
-            catch (ServiceUnavailableException serviceUnavailableException)
-            {
-                // in a sense this is pointless, belabouring the point that this exception can fly out
-                // however, if we imagine logging that this happened here, then it would have a function
-                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
+                if (runOutcome.succeeded())
+                {
+                    return runOutcome.result();
+                }
 
-                throw serviceUnavailableException;
+                Outcome outcome = this.rollback(); // can't get a non-null outcome: this is a functionality issue with the server
+                throw runOutcome.exception();
             }
             attempted++;
         }
-        throw runOutcome.exception();
+        catch (Exception exception)
+        {
+            // seals any exceptions -- it's all bad by now
+            Outcome outcome = this.rollback(); // can't get a non-null outcome: this is a functionality issue with the server
+            throw new UnknownTransactionOutcomeException("Attempted to roll back transaction, outcome unknown", exception);
+        }
+        return null; // TODO logic check
     }
 
     @Override

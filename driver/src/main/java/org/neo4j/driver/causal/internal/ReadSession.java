@@ -131,7 +131,7 @@ public class ReadSession implements BookmarkingSession
     {
         try
         {
-            this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
+            this.v1ReadSession = this.v1Driver.session(org.neo4j.driver.v1.AccessMode.READ);
         }
         catch (ServiceUnavailableException serviceUnavailableException)
         {
