@@ -70,6 +70,12 @@ public class InternalDriver implements Driver
     }
 
     @Override
+    public Session session(Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay)
+    {
+        return session(AccessMode.WRITE, consistency, toleranceForReplicationDelay, null);
+    }
+
+    @Override
     public Session session(AccessMode accessMode, ToleranceForReplicationDelay toleranceForReplicationDelay)
     {
         return session(accessMode, Consistency.CAUSAL, toleranceForReplicationDelay, null);

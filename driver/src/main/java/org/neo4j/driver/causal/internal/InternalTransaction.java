@@ -1,15 +1,15 @@
 /**
  * Copyright (c) 2002-2016 "Neo Technology,"
  * Network Engine for Objects in Lund AB [http://neotechnology.com]
- * <p>
+ *
  * This file is part of Neo4j.
- * <p>
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -19,6 +19,7 @@
 package org.neo4j.driver.causal.internal;
 
 import org.neo4j.driver.causal.AccessMode;
+import org.neo4j.driver.causal.CannotBeginTransactionException;
 import org.neo4j.driver.causal.Outcome;
 import org.neo4j.driver.causal.RetriableAction;
 import org.neo4j.driver.causal.Transaction;
@@ -41,9 +42,16 @@ public class InternalTransaction implements Transaction
     // TODO configure these values
 
     final static int DEFAULT_ATTEMPTS_TO_RUN = 3;
+    final static int ATTEMPTS_TO_RUN = DEFAULT_ATTEMPTS_TO_RUN;
+
     final static int DEFAULT_RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = 100;
+    final static int RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = DEFAULT_RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS;
+
     final static int DEFAULT_ATTEMPTS_TO_BEGIN_TRANSACTION = 3;
+    final static int ATTEMPTS_TO_BEGIN_TRANSACTION = DEFAULT_ATTEMPTS_TO_BEGIN_TRANSACTION;
+
     final static int DEFAULT_BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = 100;
+    final static int BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = DEFAULT_BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS;
 
     private final BookmarkingSession parentSession;
     private final AccessMode accessMode;
@@ -74,7 +82,7 @@ public class InternalTransaction implements Transaction
     {
         RetriableAction.Outcome<org.neo4j.driver.v1.Transaction, Neo4jException> beginTransactionOutcome = null;
 
-        int attemptsToBeginTransaction = DEFAULT_ATTEMPTS_TO_BEGIN_TRANSACTION;
+        int attemptsToBeginTransaction = ATTEMPTS_TO_BEGIN_TRANSACTION;
         int attempted = 0;
         while (attempted < attemptsToBeginTransaction) // the number of attempts intended
         {
@@ -96,8 +104,10 @@ public class InternalTransaction implements Transaction
             }
 
             if ((beginTransactionOutcome.exception() instanceof ClientException) ||   // proper impl would prevent this kind of double exception juggling: ClientException is created by driver
-                    (beginTransactionOutcome.exception() instanceof DatabaseException))
+                (beginTransactionOutcome.exception() instanceof DatabaseException))
             {
+                // back-compat --> don't wrap with new exception. Questionable.
+
                 throw beginTransactionOutcome.exception();
             }
 
@@ -105,6 +115,19 @@ public class InternalTransaction implements Transaction
 
             try
             {
+                try
+                {
+                    Thread.sleep(BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS);
+                }
+                catch (Exception exception)
+                {
+                    // ignore interruption
+
+                    /* transact does the following, in essence
+
+                    throw new CannotBeginTransactionException("Retry sleep interrupted")
+                    */
+                }
                 parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
             }
             catch (ServiceUnavailableException serviceUnavailableException)
@@ -116,16 +139,8 @@ public class InternalTransaction implements Transaction
                 throw serviceUnavailableException;
             }
             attempted++;
-            try
-            {
-
-            }
-            catch (Exception exception)
-            {
-
-            }
         }
-        throw beginTransactionOutcome.exception();
+        throw new CannotBeginTransactionException("Unexpectedly failed to begin transaction", beginTransactionOutcome.exception());
     }
 
     @Override
@@ -199,7 +214,7 @@ public class InternalTransaction implements Transaction
     @Override
     public StatementResult run(String statementTemplate, Value parameters)
     {
-        return v1Transaction.run(statementTemplate, parameters);
+        return resilientRun(() -> v1Transaction.run(statementTemplate, parameters));
     }
 
     @Override
@@ -236,33 +251,37 @@ public class InternalTransaction implements Transaction
     {
         RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
 
-        int attemptsToRun = DEFAULT_ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
+        int attemptsToRun = ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
         // isn't the server dead?
         int attempted = 0;
 
-        try
+        while (attempted < attemptsToRun) // the number of attempts intended
         {
-            while (attempted < attemptsToRun) // the number of attempts intended
+            runOutcome = RetriableAction.attemptWork(runAction::work);
+
+            if (runOutcome.succeeded())
             {
-                runOutcome = RetriableAction.attemptWork(runAction::work);
+                return runOutcome.result();
+            }
+            try
+            {
+                Thread.sleep(RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS);
+            }
+            catch (Exception exception)
+            {
+                // ignore interruption
 
-                if (runOutcome.succeeded())
-                {
-                    return runOutcome.result();
-                }
+                    /* transact does the following, in essence
 
-                Outcome outcome = this.rollback(); // can't get a non-null outcome: this is a functionality issue with the server
-                throw runOutcome.exception();
+                    throw new CannotBeginTransactionException("Retry sleep interrupted")
+                    */
             }
             attempted++;
         }
-        catch (Exception exception)
-        {
-            // seals any exceptions -- it's all bad by now
-            Outcome outcome = this.rollback(); // can't get a non-null outcome: this is a functionality issue with the server
-            throw new UnknownTransactionOutcomeException("Attempted to roll back transaction, outcome unknown", exception);
-        }
-        return null; // TODO logic check
+        // if we get here then the last attempt failed, so we must have caught an exception
+
+        Outcome outcome = this.rollback(); // can't get a non-null outcome: this is a functionality issue with the server
+        throw new UnknownTransactionOutcomeException("Attempted to roll back transaction, outcome unknown", runOutcome.exception());
     }
 
     @Override

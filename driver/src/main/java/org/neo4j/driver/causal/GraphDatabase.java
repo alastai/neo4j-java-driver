@@ -20,6 +20,9 @@ package org.neo4j.driver.causal;
 
 import org.neo4j.driver.causal.internal.InternalDriver;
 import org.neo4j.driver.v1.AuthToken;
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
+
+import java.util.Map;
 
 public class GraphDatabase
 {
@@ -33,25 +36,40 @@ public class GraphDatabase
         return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
     }
 
-    public static Driver driver(AuthToken authToken, String... uri) // just alternatives, cycle for the lazy app
+    public static Driver driver(AuthToken authToken, String... uris) // just alternatives, cycle for the lazy app
     {
-        // TODO return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
-        return null;
+        return driver(authToken, uris);
     }
 
-    public static Driver driver(Iterable<String> uri, AuthToken authToken) // just alternatives, cycle for the lazy app
+    public static Driver driver(Iterable<String> uris, AuthToken authToken) // just alternatives, cycle for the lazy app
     {
-        // TODO return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
-        return null;
+        // this bears thinking about -- should these be network addresses (bolt+routing:// assumed)?
+        // that would prevent mixed URI schemes, which is one source of confusion/error for the client
+
+        for (String uri: uris)
+        {
+            try
+            {
+                return driver(uri, authToken);
+            }
+            catch (ServiceUnavailableException serviceUnavailableException)
+            {
+                // try the next URI
+            }
+            catch (Exception exception) // something unexpected: let it fly
+            {
+                throw exception;
+            }
+        }
+        throw new ServiceUnavailableException("None of the supplied routing bootstrap URIs worked");
     }
 
-    public static Driver superClusterDriver(AuthToken authToken, String... uri)
+    public static Map<String, Driver> superClusterDrivers(AuthToken authToken, Iterable<String> partitionNames, String ... uris)
     {
-        // TODO return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
-        return null;
+        return superClusterDrivers(authToken, partitionNames, uris);
     }
 
-    public static Driver superClusterDriver(Iterable<String> uri, AuthToken authToken) // music of the future
+    public static Map<String, Driver> superClusterDrivers(Iterable<String> uris, Iterable<String> partionNames, AuthToken authToken) // music of the future
     {
         // TODO return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
         return null;

@@ -38,9 +38,12 @@ public interface Driver extends AutoCloseable
     Session session(AccessMode accessMode,
                     Consistency consistency);                               // default to ToleranceForReplicationDelay.LOW
 
-    Session session(AccessMode accessMode,
+    Session session(Consistency consistency,
                     ToleranceForReplicationDelay toleranceForReplicationDelay);
                                                                            // default to Consistency.CAUSAL
+                                                                           Session session(AccessMode accessMode,
+                                                                                           ToleranceForReplicationDelay toleranceForReplicationDelay);
+    // default to Consistency.CAUSAL
     Session session(AccessMode accessMode,
                     Consistency consistency,
                     ToleranceForReplicationDelay toleranceForReplicationDelay);

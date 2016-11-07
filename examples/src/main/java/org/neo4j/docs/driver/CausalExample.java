@@ -23,6 +23,7 @@ import org.neo4j.driver.causal.Consistency;
 import org.neo4j.driver.causal.Driver;
 import org.neo4j.driver.causal.GraphDatabase;
 import org.neo4j.driver.causal.Session;
+import org.neo4j.driver.causal.ToleranceForReplicationDelay;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.v1.AuthTokens;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
@@ -103,9 +104,15 @@ public class CausalExample
 
             try (Session causallyConsistentSession = driver.session()) // by default causally consistent and AccessMode.WRITE
             {
-                try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+                try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.WRITE))
                 {
                     tx.run("CREATE (a:`" + label + "`)").consume();
+                    tx.success();
+                }
+
+                try (Transaction tx = causallyConsistentSession.beginTransaction(AccessMode.READ))
+                {
+                    matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
                     tx.success();
                 }
 
@@ -134,20 +141,26 @@ public class CausalExample
     public static boolean readFromAnywhereInEventuallyConsistentSession(String label)
     {
         // imagine working in headless application that executes a stream of transactions
-        Driver driver = GraphDatabase.driver("bolt+routing://com.customer.neocoreserver1:7687",
-                AuthTokens.basic("neo4j", "neo"));
+        // or in Javascript in a serverless application
+
+        Driver driver = GraphDatabase.driver(AuthTokens.basic("neo4j", "neo"),
+                                             "bolt+routing://com.customer.neocoreserver1:7687",
+                                             "bolt+routing://com.customer.neocoreserver2:7687",
+                                             "bolt+routing://com.customer.neocoreserver3:7687");
 
         boolean matched;
 
-        try (Session eventuallyConsistentSession = driver.session(Consistency.EVENTUAL)) // AccessMode.WRITE
+        // specifiying ToleranceForReplicationDelay.HIGH near-guarantees we will go to a Read Replica, if available, for read transactions
+
+        try (Session eventuallyConsistentSession = driver.session(Consistency.EVENTUAL, ToleranceForReplicationDelay.HIGH)) // AccessMode.WRITE
         {
-            try (Transaction tx = eventuallyConsistentSession.beginTransaction(AccessMode.READ))
+            try (Transaction tx = eventuallyConsistentSession.beginTransaction()) // inherit default AccessMode.Write
             {
-                matched = tx.run("MATCH (a:`" + label + "`) RETURN a").hasNext();
+                tx.run("CREATE (a:`" + label + "`) RETURN a").consume();
                 tx.success();
             }
 
-            // very hard to emulate -- let's imagine that we are experiencing negative time travel
+            // read from a Read Replica -- likely to experience negative time travel
 
             try (Transaction tx = eventuallyConsistentSession.beginTransaction(AccessMode.READ))
             {
