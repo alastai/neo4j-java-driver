@@ -18,17 +18,22 @@
  */
 package org.neo4j.driver.causal;
 
+import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.util.Resource;
+
+import java.util.function.Function;
 
 public interface Session extends Resource
 {
-    Transaction beginTransaction();
-    Transaction beginTransaction(AccessMode accessMode);
+    <T> T readUnitOfWork(Function<Transaction, T> unitOfWork) throws NotCommittedException, ServiceUnavailableException;
+    <T> T readUnitOfWork(Function<Transaction, T> unitOfWork, UnitOfWorkRetryParameters unitOfWorkRetryParameters) throws NotCommittedException, ServiceUnavailableException;
+
+    <T> T writeUnitOfWork(Function<Transaction, T> unitOfWork) throws NotCommittedException, ServiceUnavailableException;
+    <T> T writeUnitOfWork(Function<Transaction, T> unitOfWork, UnitOfWorkRetryParameters unitOfWorkRetryParameters) throws NotCommittedException, ServiceUnavailableException;
 
     String lastBookmark();
     @Override void close();
 
     Consistency consistency();
     ToleranceForReplicationDelay toleranceForReplicationDelay();
-    AccessMode defaultTransactionAccessMode();
 }

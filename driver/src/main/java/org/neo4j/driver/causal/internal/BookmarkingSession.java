@@ -18,8 +18,8 @@
  */
 package org.neo4j.driver.causal.internal;
 
-import org.neo4j.driver.causal.AccessMode;
 import org.neo4j.driver.causal.Session;
+import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 
 public interface BookmarkingSession extends Session

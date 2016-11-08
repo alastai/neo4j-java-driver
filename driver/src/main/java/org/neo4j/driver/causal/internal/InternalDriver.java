@@ -18,19 +18,21 @@
  */
 package org.neo4j.driver.causal.internal;
 
-import org.neo4j.driver.causal.AccessMode;
 import org.neo4j.driver.causal.Consistency;
 import org.neo4j.driver.causal.Driver;
 import org.neo4j.driver.causal.Session;
 import org.neo4j.driver.causal.ToleranceForReplicationDelay;
+import org.neo4j.driver.causal.UnitOfWorkRetryParameters;
 
 public class InternalDriver implements Driver
 {
     private final org.neo4j.driver.v1.Driver v1Driver;
+    private final UnitOfWorkRetryParameters defaultUnitOfWorkRetryParameters;
 
-    public InternalDriver(org.neo4j.driver.v1.Driver v1Driver)
+    public InternalDriver(org.neo4j.driver.v1.Driver v1Driver, UnitOfWorkRetryParameters defaultUnitOfWorkRetryParameters)
     {
         this.v1Driver = v1Driver;
+        this.defaultUnitOfWorkRetryParameters = defaultUnitOfWorkRetryParameters;
     }
 
     @Override
@@ -40,15 +42,15 @@ public class InternalDriver implements Driver
     }
 
     @Override
-    public Session session()
+    public UnitOfWorkRetryParameters defaultRetryUnitOfWorkParameters()
     {
-        return session(AccessMode.WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null); // should we default to causal consistency within a session?
+        return this.defaultUnitOfWorkRetryParameters;
     }
 
     @Override
-    public Session session(AccessMode accessMode)
+    public Session session()
     {
-        return session(accessMode, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null);
+        return session(Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, null); // should we default to causal consistency within a session?
     }
 
     @Override
@@ -64,57 +66,26 @@ public class InternalDriver implements Driver
     }
 
     @Override
-    public Session session(AccessMode accessMode, Consistency consistency)
-    {
-        return session(accessMode, consistency, ToleranceForReplicationDelay.LOW, null);
-    }
-
-    @Override
     public Session session(Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay)
     {
-        return session(AccessMode.WRITE, consistency, toleranceForReplicationDelay, null);
-    }
-
-    @Override
-    public Session session(AccessMode accessMode, ToleranceForReplicationDelay toleranceForReplicationDelay)
-    {
-        return session(accessMode, Consistency.CAUSAL, toleranceForReplicationDelay, null);
-    }
-
-    @Override
-    public Session session(AccessMode accessMode, Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay)
-    {
-        return session(accessMode, consistency, toleranceForReplicationDelay, null);
+        return session(consistency, toleranceForReplicationDelay, null);
     }
 
     @Override
     public Session session(String bookmark)
     {
-        return session(AccessMode.WRITE, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
+        return session(Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
     }
 
     @Override
-    public Session session(AccessMode accessMode, String bookmark)
+    public Session session(ToleranceForReplicationDelay toleranceForReplicationDelay, String bookmark)
     {
-        return session(accessMode, Consistency.CAUSAL, ToleranceForReplicationDelay.LOW, bookmark);
+        return session(Consistency.CAUSAL, toleranceForReplicationDelay, bookmark);
     }
 
-    @Override
-    public Session session(AccessMode accessMode, ToleranceForReplicationDelay toleranceForReplicationDelay, String bookmark)
+    private Session session(Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay, String bookmark)
     {
-        return session(accessMode, Consistency.CAUSAL, toleranceForReplicationDelay, bookmark);
-    }
-
-    private Session session(AccessMode accessMode, Consistency consistency, ToleranceForReplicationDelay toleranceForReplicationDelay, String bookmark)
-    {
-        switch (accessMode)
-        {
-            case WRITE:
-                return new WriteSession(v1Driver, consistency, toleranceForReplicationDelay, bookmark);
-            case READ:
-            default:
-                return new ReadSession(v1Driver, consistency, toleranceForReplicationDelay, bookmark);
-        }
+        return new InternalSession(v1Driver, consistency, toleranceForReplicationDelay, this.defaultUnitOfWorkRetryParameters, bookmark);
     }
 
     @Override

@@ -18,41 +18,20 @@
  */
 package org.neo4j.driver.causal.internal;
 
-import org.neo4j.driver.causal.AccessMode;
-import org.neo4j.driver.causal.CannotBeginTransactionException;
 import org.neo4j.driver.causal.Outcome;
-import org.neo4j.driver.causal.RetriableAction;
 import org.neo4j.driver.causal.Transaction;
 import org.neo4j.driver.causal.TransactionState;
-import org.neo4j.driver.causal.UnknownTransactionOutcomeException;
+import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Statement;
 import org.neo4j.driver.v1.StatementResult;
 import org.neo4j.driver.v1.Value;
-import org.neo4j.driver.v1.exceptions.ClientException;
-import org.neo4j.driver.v1.exceptions.DatabaseException;
-import org.neo4j.driver.v1.exceptions.Neo4jException;
-import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 import org.neo4j.driver.v1.types.TypeSystem;
 
 import java.util.Map;
 
 public class InternalTransaction implements Transaction
 {
-    // TODO configure these values
-
-    final static int DEFAULT_ATTEMPTS_TO_RUN = 3;
-    final static int ATTEMPTS_TO_RUN = DEFAULT_ATTEMPTS_TO_RUN;
-
-    final static int DEFAULT_RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = 100;
-    final static int RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = DEFAULT_RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS;
-
-    final static int DEFAULT_ATTEMPTS_TO_BEGIN_TRANSACTION = 3;
-    final static int ATTEMPTS_TO_BEGIN_TRANSACTION = DEFAULT_ATTEMPTS_TO_BEGIN_TRANSACTION;
-
-    final static int DEFAULT_BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = 100;
-    final static int BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS = DEFAULT_BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS;
-
     private final BookmarkingSession parentSession;
     private final AccessMode accessMode;
     private final org.neo4j.driver.v1.Transaction v1Transaction;
@@ -75,72 +54,14 @@ public class InternalTransaction implements Transaction
         this.accessMode = accessMode;
         this.bookmark = bookmark;
 
-        this.v1Transaction = resilientBeginTransaction(parentSession, bookmark); // will be READ for a READ session, and WRITE for a WRITE session
-    }
-
-    private org.neo4j.driver.v1.Transaction resilientBeginTransaction(BookmarkingSession parentSession, String bookmark)
-    {
-        RetriableAction.Outcome<org.neo4j.driver.v1.Transaction, Neo4jException> beginTransactionOutcome = null;
-
-        int attemptsToBeginTransaction = ATTEMPTS_TO_BEGIN_TRANSACTION;
-        int attempted = 0;
-        while (attempted < attemptsToBeginTransaction) // the number of attempts intended
+        if (null == bookmark)
         {
-            beginTransactionOutcome = RetriableAction.attemptWork(() ->
-            {
-                if (null == bookmark)
-                {
-                    return parentSession.v1Session(this.accessMode).beginTransaction();
-                }
-                else
-                {
-                    return parentSession.v1Session(this.accessMode).beginTransaction(bookmark);
-                }
-            });
-
-            if (beginTransactionOutcome.succeeded())
-            {
-                return beginTransactionOutcome.result();
-            }
-
-            if ((beginTransactionOutcome.exception() instanceof ClientException) ||   // proper impl would prevent this kind of double exception juggling: ClientException is created by driver
-                (beginTransactionOutcome.exception() instanceof DatabaseException))
-            {
-                // back-compat --> don't wrap with new exception. Questionable.
-
-                throw beginTransactionOutcome.exception();
-            }
-
-            // ConnectionFailureException, TransientExceptiona and SessionExpiredException are considered retriable
-
-            try
-            {
-                try
-                {
-                    Thread.sleep(BEGIN_TRANSACTION_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS);
-                }
-                catch (Exception exception)
-                {
-                    // ignore interruption
-
-                    /* transact does the following, in essence
-
-                    throw new CannotBeginTransactionException("Retry sleep interrupted")
-                    */
-                }
-                parentSession.refreshV1Session(this.accessMode); // this is worth doing: sessions can be established on still-live or new-role servers
-            }
-            catch (ServiceUnavailableException serviceUnavailableException)
-            {
-                // in a sense this is pointless, belabouring the point that this exception can fly out
-                // however, if we imagine logging that this happened here, then it would have a function
-                // and it is also (heavy-handedly) self-documenting -- you can't miss that this can happen
-
-                throw serviceUnavailableException;
-            }
-            attempted++;
+            this.v1Transaction = parentSession.v1Session(this.accessMode).beginTransaction();
         }
-        throw new CannotBeginTransactionException("Unexpectedly failed to begin transaction", beginTransactionOutcome.exception());
+        else
+        {
+            this.v1Transaction = parentSession.v1Session(this.accessMode).beginTransaction(bookmark);
+        }
     }
 
     @Override
@@ -214,74 +135,31 @@ public class InternalTransaction implements Transaction
     @Override
     public StatementResult run(String statementTemplate, Value parameters)
     {
-        return resilientRun(() -> v1Transaction.run(statementTemplate, parameters));
+        return v1Transaction.run(statementTemplate, parameters);
     }
 
     @Override
     public StatementResult run(String statementTemplate, Map<String, Object> statementParameters)
     {
-        return resilientRun(() -> v1Transaction.run(statementTemplate, statementParameters));
+        return v1Transaction.run(statementTemplate, statementParameters);
     }
 
     @Override
     public StatementResult run(String statementTemplate, Record statementParameters)
     {
-        return resilientRun(() -> v1Transaction.run(statementTemplate, statementParameters));
+        return v1Transaction.run(statementTemplate, statementParameters);
     }
 
     @Override
     public StatementResult run(String statementTemplate)
     {
-        return resilientRun(() -> v1Transaction.run(statementTemplate));
+        return v1Transaction.run(statementTemplate);
     }
 
     @Override
     public StatementResult run(Statement statement)
     {
-        return resilientRun(() -> v1Transaction.run(statement));
-    }
-
-    @FunctionalInterface
-    private interface RunAction
-    {
-        StatementResult work();
-    }
-
-    private StatementResult resilientRun(RunAction runAction)
-    {
-        RetriableAction.Outcome<StatementResult, Neo4jException> runOutcome = null;
-
-        int attemptsToRun = ATTEMPTS_TO_RUN; // it's not clear that we need to loop like this. If the second attempt fails,
-        // isn't the server dead?
-        int attempted = 0;
-
-        while (attempted < attemptsToRun) // the number of attempts intended
-        {
-            runOutcome = RetriableAction.attemptWork(runAction::work);
-
-            if (runOutcome.succeeded())
-            {
-                return runOutcome.result();
-            }
-            try
-            {
-                Thread.sleep(RUN_ATTEMPTS_RETRY_INTERVAL_IN_MILLIS);
-            }
-            catch (Exception exception)
-            {
-                // ignore interruption
-
-                    /* transact does the following, in essence
-
-                    throw new CannotBeginTransactionException("Retry sleep interrupted")
-                    */
-            }
-            attempted++;
-        }
-        // if we get here then the last attempt failed, so we must have caught an exception
-
-        Outcome outcome = this.rollback(); // can't get a non-null outcome: this is a functionality issue with the server
-        throw new UnknownTransactionOutcomeException("Attempted to roll back transaction, outcome unknown", runOutcome.exception());
+        return v1Transaction.run(statement);
     }
 
     @Override

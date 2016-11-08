@@ -18,6 +18,7 @@
  */
 package org.neo4j.driver.causal;
 
+import org.neo4j.driver.v1.AccessMode;
 import org.neo4j.driver.v1.StatementRunner;
 import org.neo4j.driver.v1.util.Resource;
 

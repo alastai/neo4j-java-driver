@@ -24,16 +24,22 @@ import org.neo4j.driver.v1.exceptions.ServiceUnavailableException;
 
 import java.util.Map;
 
+import static org.neo4j.driver.causal.UnitOfWorkRetryParameters.DEFAULT_UNIT_OF_WORK_RETRY_PARAMETERS;
+
 public class GraphDatabase
 {
-    // TODO establish retry defaults to be used for session creation attempts
-    // and to be inherited as defaults for begin transaction and run attempts
-
     public static Driver driver(String uri, AuthToken authToken)
     {
         // TODO discriminate between bolt:// and bolt+routing://?
 
-        return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
+        return driver(uri, authToken, DEFAULT_UNIT_OF_WORK_RETRY_PARAMETERS);
+    }
+
+    public static Driver driver(String uri, AuthToken authToken, UnitOfWorkRetryParameters unitOfWorkRetryParameters)
+    {
+        // TODO discriminate between bolt:// and bolt+routing://?
+
+        return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken), unitOfWorkRetryParameters);
     }
 
     public static Driver driver(AuthToken authToken, String... uris) // just alternatives, cycle for the lazy app
@@ -74,5 +80,4 @@ public class GraphDatabase
         // TODO return new InternalDriver(org.neo4j.driver.v1.GraphDatabase.driver(uri, authToken));
         return null;
     }
-
 }

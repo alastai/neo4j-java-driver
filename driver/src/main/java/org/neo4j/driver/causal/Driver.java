@@ -18,44 +18,27 @@
  */
 package org.neo4j.driver.causal;
 
+
 public interface Driver extends AutoCloseable
 {
     boolean isEncrypted();
-    Session session();                                                      // default to AccessMode.READ_WRITE
-                                                                            // default to Consistency.CAUSAL
+    UnitOfWorkRetryParameters defaultRetryUnitOfWorkParameters();
+
+    Session session();                                                      // default to Consistency.CAUSAL
                                                                             // default to ToleranceForReplicationDelay.LOW
 
-    Session session(AccessMode accessMode);                                 // default to Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.LOW
-
-    Session session(Consistency consistency);                               // default to AccessMode.READ_WRITE
-                                                                            // default to ToleranceForReplicationDelay.LOW
+    Session session(Consistency consistency);                               // default to ToleranceForReplicationDelay.LOW
 
     Session session(ToleranceForReplicationDelay toleranceForReplicationDelay);
-                                                                            // default to AccessMode.READ_WRITE
                                                                             // default to Consistency.CAUSAL
-
-    Session session(AccessMode accessMode,
-                    Consistency consistency);                               // default to ToleranceForReplicationDelay.LOW
 
     Session session(Consistency consistency,
                     ToleranceForReplicationDelay toleranceForReplicationDelay);
                                                                            // default to Consistency.CAUSAL
-                                                                           Session session(AccessMode accessMode,
-                                                                                           ToleranceForReplicationDelay toleranceForReplicationDelay);
-    // default to Consistency.CAUSAL
-    Session session(AccessMode accessMode,
-                    Consistency consistency,
-                    ToleranceForReplicationDelay toleranceForReplicationDelay);
 
-    Session session(String bookmark);                                       // default to ACCESS_MODE.READ_WRITE
-                                                                            // bookmark -->  Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.LOW
+    Session session(String bookmark);                                      // bookmark -->  Consistency.CAUSAL
+                                                                           // default to ToleranceForReplicationDelay.LOW
 
-    Session session(AccessMode accessMode, String bookmark);                // bookmark -->  Consistency.CAUSAL
-                                                                            // default to ToleranceForReplicationDelay.LOW
-
-    Session session(AccessMode accessMode,
-                    ToleranceForReplicationDelay toleranceForReplicationDelay,
+    Session session(ToleranceForReplicationDelay toleranceForReplicationDelay,
                     String bookmark);                                       // bookmark -->  Consistency.CAUSAL
 }

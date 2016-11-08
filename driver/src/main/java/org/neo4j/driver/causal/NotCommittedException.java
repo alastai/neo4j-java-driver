@@ -18,11 +18,17 @@
  */
 package org.neo4j.driver.causal;
 
-public enum AccessMode
+import org.neo4j.driver.v1.exceptions.Neo4jException;
+
+public class NotCommittedException extends Neo4jException
 {
-    READ,
-    WRITE;
+    public NotCommittedException(String message)
+    {
+        super(message);
+    }
 
-    public static final AccessMode READ_WRITE = AccessMode.WRITE;
+    public NotCommittedException(String message, Throwable cause)
+    {
+        super(message, cause);
+    }
 }
-
